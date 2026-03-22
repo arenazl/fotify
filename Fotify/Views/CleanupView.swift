@@ -4,7 +4,7 @@ import Photos
 struct CleanupView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @StateObject private var duplicatesVM = DuplicatesViewModel()
-    @State private var selectedTab: CleanupTab = .screenshots
+    @Binding var selectedTab: CleanupTab
     @State private var vaporizeProgress: CGFloat = 0.0
     @State private var selectedScreenshots: Set<Int> = []
     @State private var showDeleteConfirmation = false

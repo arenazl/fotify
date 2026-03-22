@@ -3,6 +3,7 @@ import Photos
 
 struct NeuralDashboard: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
+    let onCategorySelected: (PhotoCategory) -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
@@ -30,89 +31,16 @@ struct NeuralDashboard: View {
                 .padding(.leading, 24)
 
             LazyVGrid(columns: columns, spacing: 14) {
-                CategoryCard(
-                    icon: "clock.arrow.circlepath",
-                    label: "Timeline",
-                    count: photoLibrary.photoCount,
-                    color: .blue
-                )
-
-                CategoryCard(
-                    icon: "map",
-                    label: "Lugares",
-                    count: nil,
-                    color: .green
-                )
-
-                CategoryCard(
-                    icon: "person.2.fill",
-                    label: "Personas",
-                    count: nil,
-                    color: .pink
-                )
-
-                CategoryCard(
-                    icon: "rectangle.dashed",
-                    label: "Capturas",
-                    count: photoLibrary.screenshotCount,
-                    color: .orange
-                )
-
-                CategoryCard(
-                    icon: "doc.on.doc.fill",
-                    label: "Duplicados",
-                    count: nil,
-                    color: .purple
-                )
-
-                CategoryCard(
-                    icon: "heart.fill",
-                    label: "Favoritos",
-                    count: nil,
-                    color: .red
-                )
-
-                CategoryCard(
-                    icon: "video.fill",
-                    label: "Videos",
-                    count: nil,
-                    color: .cyan
-                )
-
-                CategoryCard(
-                    icon: "person.crop.square",
-                    label: "Selfies",
-                    count: nil,
-                    color: .indigo
-                )
-
-                CategoryCard(
-                    icon: "camera.viewfinder",
-                    label: "Live Photos",
-                    count: nil,
-                    color: .mint
-                )
-
-                CategoryCard(
-                    icon: "doc.text.viewfinder",
-                    label: "Documentos",
-                    count: nil,
-                    color: .brown
-                )
-
-                CategoryCard(
-                    icon: "moon.stars.fill",
-                    label: "Noche",
-                    count: nil,
-                    color: .indigo
-                )
-
-                CategoryCard(
-                    icon: "tag.fill",
-                    label: "Tags IA",
-                    count: nil,
-                    color: .purple
-                )
+                ForEach(PhotoCategory.allCases) { category in
+                    CategoryCard(
+                        icon: category.icon,
+                        label: category.label,
+                        count: photoLibrary.count(for: category),
+                        color: category.color
+                    ) {
+                        onCategorySelected(category)
+                    }
+                }
             }
             .padding(.horizontal, 20)
         }
@@ -206,27 +134,32 @@ struct CategoryCard: View {
     let label: String
     let count: Int?
     let color: Color
+    let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(color)
 
-            Text(label)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
+                Text(label)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
 
-            if let count, count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: 90)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 20))
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 90)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 

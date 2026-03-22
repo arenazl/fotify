@@ -48,6 +48,8 @@ struct ContentView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @State private var neuralPulse: CGFloat = 1.0
     @State private var selectedModule: AppModule = .dashboard
+    @State private var selectedCategory: PhotoCategory?
+    @State private var cleanupTab: CleanupView.CleanupTab = .screenshots
     @State private var aiCommand: String = ""
     @State private var isProcessingCommand = false
     @State private var aiMessage: String = ""
@@ -95,37 +97,54 @@ struct ContentView: View {
 
                 // Dynamic Module
                 ZStack {
-                    switch selectedModule {
-                    case .dashboard:
-                        NeuralDashboard()
+                    if let category = selectedCategory {
+                        CategoryDetailView(category: category) {
+                            withAnimation(.spring(duration: 0.4)) {
+                                selectedCategory = nil
+                            }
+                        }
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        ))
+                    } else {
+                        switch selectedModule {
+                        case .dashboard:
+                            NeuralDashboard { category in
+                                handleCategoryTap(category)
+                            }
                             .transition(.asymmetric(
                                 insertion: .scale.combined(with: .opacity),
                                 removal: .opacity
                             ))
-                    case .photos:
-                        PhotoMeshView()
-                            .transition(.asymmetric(
-                                insertion: .scale.combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                    case .cleanup:
-                        CleanupView()
-                            .transition(.asymmetric(
-                                insertion: .scale.combined(with: .opacity),
-                                removal: .opacity
-                            ))
+                        case .photos:
+                            PhotoMeshView()
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .opacity
+                                ))
+                        case .cleanup:
+                            CleanupView(selectedTab: $cleanupTab)
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .opacity
+                                ))
+                        }
                     }
                 }
                 .animation(.spring(duration: 0.5), value: selectedModule)
+                .animation(.spring(duration: 0.4), value: selectedCategory)
 
                 Spacer()
 
                 neuralOrbView
             }
         }
-        .onTapGesture {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+        )
         .onAppear {
             withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
                 neuralPulse = 1.5
@@ -191,6 +210,7 @@ struct ContentView: View {
                 ForEach(AppModule.allCases, id: \.rawValue) { module in
                     Button {
                         withAnimation(.spring(duration: 0.4)) {
+                            selectedCategory = nil
                             selectedModule = module
                         }
                     } label: {
@@ -278,6 +298,23 @@ struct ContentView: View {
         case .dashboard: "CORTEX"
         case .photos: "MESH"
         case .cleanup: "PURGE"
+        }
+    }
+
+    private func handleCategoryTap(_ category: PhotoCategory) {
+        withAnimation(.spring(duration: 0.4)) {
+            switch category {
+            case .screenshots:
+                cleanupTab = .screenshots
+                selectedModule = .cleanup
+            case .duplicates:
+                cleanupTab = .duplicates
+                selectedModule = .cleanup
+            case .aiTags:
+                selectedModule = .photos
+            default:
+                selectedCategory = category
+            }
         }
     }
 
