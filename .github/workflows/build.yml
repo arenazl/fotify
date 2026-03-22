@@ -3,13 +3,14 @@ name: Build Fotify iOS
 on:
   push:
     branches: [main, master]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-15
+    permissions:
+      contents: write
+      pages: write
 
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +24,6 @@ jobs:
 
       - name: Build and create IPA
         run: |
-          # Build for device with ad-hoc signing
           xcodebuild archive \
             -project Fotify.xcodeproj \
             -scheme Fotify \
@@ -34,31 +34,76 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-          # Create ExportOptions plist for ad-hoc
-          cat > build/ExportOptions.plist << 'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>compileBitcode</key>
-            <false/>
-            <key>signingStyle</key>
-            <string>automatic</string>
-          </dict>
-          </plist>
-          PLIST
-
-          # Manually create IPA from archive
           APP_PATH="build/Fotify.xcarchive/Products/Applications/Fotify.app"
           mkdir -p build/Payload
           cp -r "$APP_PATH" build/Payload/
           cd build
           zip -r Fotify.ipa Payload/
 
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
+      - name: Get IPA size
+        id: ipa_size
+        run: echo "size=$(stat -f%z build/Fotify.ipa)" >> $GITHUB_OUTPUT
+
+      - name: Update AltStore source with real size
+        run: |
+          python3 -c "
+          import json
+          with open('altstore-source.json', 'r') as f:
+              source = json.load(f)
+          source['apps'][0]['versions'][0]['size'] = ${{ steps.ipa_size.outputs.size }}
+          source['apps'][0]['versions'][0]['date'] = '$(date +%Y-%m-%d)'
+          with open('altstore-source.json', 'w') as f:
+              json.dump(source, f, indent=2)
+          "
+
+      - name: Create GitHub Release
+        run: |
+          # Delete existing release if exists
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+
+          # Create new release with IPA
+          gh release create latest \
+            build/Fotify.ipa \
+            --title "Fotify Latest" \
+            --notes "Build automático $(date +%Y-%m-%d)" \
+            --prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy AltStore source to GitHub Pages
+        run: |
+          mkdir -p pages
+          cp altstore-source.json pages/
+          # Create a simple icon (placeholder)
+          python3 -c "
+          import base64, struct, zlib
+          def create_png(w, h, r, g, b):
+              def chunk(ctype, data):
+                  return struct.pack('>I', len(data)) + ctype + data + struct.pack('>I', zlib.crc32(ctype + data) & 0xffffffff)
+              raw = b''
+              for y in range(h):
+                  raw += b'\x00' + bytes([r, g, b, 255]) * w
+              return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+          with open('pages/icon.png', 'wb') as f:
+              f.write(create_png(128, 128, 124, 58, 237))
+          "
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: Fotify-unsigned
-          path: build/Fotify.ipa
+          path: pages/
+
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
