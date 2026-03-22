@@ -21,32 +21,37 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
 
-      - name: Build
+      - name: Build and create IPA
         run: |
-          xcodebuild build \
-            -project Fotify.xcodeproj \
-            -scheme Fotify \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -configuration Debug \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Create IPA
-        run: |
-          # Build for device (unsigned)
-          xcodebuild build \
+          # Build for device with ad-hoc signing
+          xcodebuild archive \
             -project Fotify.xcodeproj \
             -scheme Fotify \
             -destination 'generic/platform=iOS' \
-            -configuration Debug \
-            -derivedDataPath build/derived \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            -archivePath build/Fotify.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-          # Package as IPA
-          APP_PATH=$(find build/derived -name "Fotify.app" -type d | head -1)
+          # Create ExportOptions plist for ad-hoc
+          cat > build/ExportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>compileBitcode</key>
+            <false/>
+            <key>signingStyle</key>
+            <string>automatic</string>
+          </dict>
+          </plist>
+          PLIST
+
+          # Manually create IPA from archive
+          APP_PATH="build/Fotify.xcarchive/Products/Applications/Fotify.app"
           mkdir -p build/Payload
           cp -r "$APP_PATH" build/Payload/
           cd build
