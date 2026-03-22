@@ -2,100 +2,218 @@ import SwiftUI
 import Photos
 import Vision
 
-struct TaggedPhoto {
-    let asset: PHAsset
+// MARK: - Persisted tag data
+
+struct PhotoTagEntry: Codable {
+    let assetId: String
     let tags: [String]
-    let confidence: [String: Float]
 }
+
+// MARK: - Tags ViewModel (background scan + persistence + search)
 
 @MainActor
 class TagsViewModel: ObservableObject {
-    enum State {
+    enum State: Equatable {
         case idle
-        case classifying(Double)
-        case done
+        case scanning(Double) // progress 0..1
+        case ready
     }
 
     @Published var state: State = .idle
-    @Published var tagGroups: [String: [TaggedPhoto]] = [:]
-    @Published var allTagged: [TaggedPhoto] = []
+    @Published var scannedCount: Int = 0
+    @Published var totalCount: Int = 0
 
-    var sortedTags: [(key: String, value: [TaggedPhoto])] {
-        tagGroups.sorted { $0.value.count > $1.value.count }
+    /// In-memory tag index: assetId → [tags]
+    private var tagIndex: [String: [String]] = [:]
+
+    /// Tags that indicate landscape/outdoor photos
+    static let landscapeTags: Set<String> = [
+        "outdoor", "landscape", "sky", "mountain", "beach",
+        "forest", "sunset", "sunrise", "ocean", "lake",
+        "river", "field", "garden", "park", "snow",
+        "cloud", "tree", "nature", "scenery", "hill",
+        "coast", "horizon", "valley", "desert", "waterfall"
+    ]
+
+    /// Tags that indicate documents/text
+    static let documentTags: Set<String> = [
+        "text", "document", "paper", "book", "writing",
+        "letter", "receipt", "label", "sign", "menu",
+        "screen", "monitor", "whiteboard", "note", "page"
+    ]
+
+    // MARK: - Persistence
+
+    private var tagsFileURL: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("photo_tags.json")
     }
 
-    // MARK: - Vision Framework (on-device)
+    func loadPersistedTags() {
+        guard let data = try? Data(contentsOf: tagsFileURL),
+              let entries = try? JSONDecoder().decode([PhotoTagEntry].self, from: data) else {
+            return
+        }
+        for entry in entries {
+            tagIndex[entry.assetId] = entry.tags
+        }
+        scannedCount = tagIndex.count
+        if scannedCount > 0 {
+            state = .ready
+        }
+    }
 
-    func classifyPhotos(photoLibrary: PhotoLibraryService) async {
+    private func persistTags() {
+        let entries = tagIndex.map { PhotoTagEntry(assetId: $0.key, tags: $0.value) }
+        if let data = try? JSONEncoder().encode(entries) {
+            try? data.write(to: tagsFileURL)
+        }
+    }
+
+    // MARK: - Background Scan
+
+    /// Scans photos in background batches of 50, without blocking UI
+    func backgroundScan(photoLibrary: PhotoLibraryService) async {
         guard let allPhotos = photoLibrary.allPhotos else { return }
 
-        state = .classifying(0)
-        tagGroups = [:]
-        allTagged = []
+        totalCount = allPhotos.count
+        let batchSize = 50
 
-        let totalCount = min(allPhotos.count, 500) // Limit first scan
-
-        for i in 0..<totalCount {
+        // Find which photos still need scanning
+        var toScan: [(Int, PHAsset)] = []
+        for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
+            if tagIndex[asset.localIdentifier] == nil {
+                toScan.append((i, asset))
+            }
+        }
 
-            if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 300, height: 300)),
-               let cgImage = image.cgImage {
+        if toScan.isEmpty {
+            state = .ready
+            return
+        }
 
-                let tags = await classifyWithVision(cgImage: cgImage)
-                let tagged = TaggedPhoto(
-                    asset: asset,
-                    tags: tags.map { $0.0 },
-                    confidence: Dictionary(uniqueKeysWithValues: tags)
-                )
-                allTagged.append(tagged)
+        state = .scanning(Double(scannedCount) / Double(totalCount))
 
-                for tag in tagged.tags {
-                    tagGroups[tag, default: []].append(tagged)
+        // Process in batches
+        for batchStart in stride(from: 0, to: toScan.count, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, toScan.count)
+            let batch = toScan[batchStart..<batchEnd]
+
+            for (_, asset) in batch {
+                if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200)),
+                   let cgImage = image.cgImage {
+                    let tags = await classifyWithVision(cgImage: cgImage)
+                    tagIndex[asset.localIdentifier] = tags
+                    scannedCount = tagIndex.count
                 }
             }
 
-            state = .classifying(Double(i + 1) / Double(totalCount))
+            // Update progress
+            state = .scanning(Double(scannedCount) / Double(totalCount))
+
+            // Save after each batch
+            persistTags()
+
+            // Yield to let UI breathe
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
         }
 
-        state = .done
+        state = .ready
     }
 
-    private func classifyWithVision(cgImage: CGImage) async -> [(String, Float)] {
+    // MARK: - Vision Classification
+
+    private func classifyWithVision(cgImage: CGImage) async -> [String] {
         await withCheckedContinuation { continuation in
-            let request = VNClassifyImageRequest { request, error in
+            let request = VNClassifyImageRequest { request, _ in
                 guard let results = request.results as? [VNClassificationObservation] else {
                     continuation.resume(returning: [])
                     return
                 }
 
-                // Take top tags with confidence > 0.3
-                let topTags = results
+                let tags = results
                     .filter { $0.confidence > 0.3 }
-                    .prefix(5)
-                    .map { ($0.identifier, $0.confidence) }
+                    .prefix(8)
+                    .map { $0.identifier.lowercased() }
 
-                continuation.resume(returning: Array(topTags))
+                continuation.resume(returning: Array(tags))
             }
 
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
-                try handler.perform([request])
+                try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
             } catch {
                 continuation.resume(returning: [])
             }
         }
     }
 
-    // MARK: - Search by tags
+    // MARK: - Search
 
-    func photosForTags(_ searchTags: [String]) -> [TaggedPhoto] {
+    /// Search photos by natural language query (matched against Vision tags)
+    func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
+        guard let allPhotos = photoLibrary.allPhotos else { return [] }
+
         let lowered = searchTags.map { $0.lowercased() }
-        return allTagged.filter { tagged in
-            tagged.tags.contains { tag in
-                lowered.contains(where: { tag.lowercased().contains($0) || $0.contains(tag.lowercased()) })
+        var results: [PHAsset] = []
+
+        for i in 0..<allPhotos.count {
+            let asset = allPhotos.object(at: i)
+            guard let assetTags = tagIndex[asset.localIdentifier] else { continue }
+
+            let match = assetTags.contains { tag in
+                lowered.contains { searchTag in
+                    tag.contains(searchTag) || searchTag.contains(tag)
+                }
+            }
+
+            if match {
+                results.append(asset)
+                if results.count >= 200 { break }
             }
         }
 
-        state = .done
+        return results
+    }
+
+    /// Get photos matching a category (documents or landscapes)
+    func photosForCategory(_ category: PhotoCategory, photoLibrary: PhotoLibraryService) -> [PHAsset] {
+        guard let allPhotos = photoLibrary.allPhotos else { return [] }
+
+        let targetTags: Set<String>
+        switch category {
+        case .documents: targetTags = Self.documentTags
+        case .landscapes: targetTags = Self.landscapeTags
+        default: return []
+        }
+
+        var results: [PHAsset] = []
+
+        for i in 0..<allPhotos.count {
+            let asset = allPhotos.object(at: i)
+            guard let assetTags = tagIndex[asset.localIdentifier] else { continue }
+
+            let match = assetTags.contains { tag in
+                targetTags.contains(where: { tag.contains($0) || $0.contains(tag) })
+            }
+
+            if match {
+                results.append(asset)
+                if results.count >= 300 { break }
+            }
+        }
+
+        return results
+    }
+
+    /// Available tags for Groq context
+    var availableTags: [String] {
+        var allTags: Set<String> = []
+        for tags in tagIndex.values {
+            for tag in tags {
+                allTags.insert(tag)
+            }
+        }
+        return Array(allTags).sorted()
     }
 }

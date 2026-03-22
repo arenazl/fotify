@@ -98,11 +98,11 @@ struct ContentView: View {
                 // Dynamic Module
                 ZStack {
                     if let category = selectedCategory {
-                        CategoryDetailView(category: category) {
+                        CategoryDetailView(category: category, onBack: {
                             withAnimation(.spring(duration: 0.4)) {
                                 selectedCategory = nil
                             }
-                        }
+                        }, tagsVM: tagsVM)
                         .transition(.asymmetric(
                             insertion: .move(edge: .trailing).combined(with: .opacity),
                             removal: .move(edge: .trailing).combined(with: .opacity)
@@ -151,10 +151,9 @@ struct ContentView: View {
             }
         }
         .task {
-            // Auto-classify photos with Vision on first launch
-            if tagsVM.tagGroups.isEmpty {
-                await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
-            }
+            // Load persisted tags, then continue scanning in background
+            tagsVM.loadPersistedTags()
+            await tagsVM.backgroundScan(photoLibrary: photoLibrary)
         }
     }
 
@@ -167,7 +166,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .black))
                     .kerning(4)
                     .foregroundColor(Color.blue.opacity(0.8))
-                Text("Cortex v.30")
+                Text("Cortex v.32")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundColor(.white)
             }
@@ -271,11 +270,11 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
-            // Classification status
-            if case .classifying(let progress) = tagsVM.state {
+            // Scan status
+            if case .scanning(let progress) = tagsVM.state {
                 HStack(spacing: 8) {
                     ProgressView().tint(.purple).scaleEffect(0.8)
-                    Text("Clasificando... \(Int(progress * 100))%")
+                    Text("Indexando fotos... \(Int(progress * 100))%")
                         .font(.caption2)
                         .foregroundStyle(.purple)
                 }
@@ -310,8 +309,6 @@ struct ContentView: View {
             case .duplicates:
                 cleanupTab = .duplicates
                 selectedModule = .cleanup
-            case .aiTags:
-                selectedModule = .photos
             default:
                 selectedCategory = category
             }
@@ -325,17 +322,10 @@ struct ContentView: View {
         aiCommand = ""
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
-        // If no tags yet, classify first
-        if tagsVM.tagGroups.isEmpty {
-            withAnimation { aiMessage = "⏳ Clasificando tus fotos... esto tarda unos segundos" }
-            await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
-            withAnimation { aiMessage = "✓ \(tagsVM.tagGroups.count) categorías encontradas. Buscando..." }
-        }
-
-        let availableTags = Array(tagsVM.tagGroups.keys)
+        let availableTags = tagsVM.availableTags
 
         if availableTags.isEmpty {
-            withAnimation { aiMessage = "No se pudieron clasificar las fotos. Intentá de nuevo." }
+            withAnimation { aiMessage = "Escaneando fotos... esperá un momento" }
             isProcessingCommand = false
             return
         }
@@ -349,15 +339,10 @@ struct ContentView: View {
             withAnimation { selectedModule = .cleanup }
         case .showPhotos:
             withAnimation { selectedModule = .photos }
-        case .tagPhotos:
-            if tagsVM.tagGroups.isEmpty {
-                await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
-            }
-            withAnimation { selectedModule = .dashboard }
-        case .searchByTags(let tags):
-            searchResultTags = tags
-            withAnimation { selectedModule = .photos }
-        case .chat, .none:
+        case .searchByTags:
+            // Open AI Search with query
+            withAnimation { selectedCategory = .aiSearch }
+        case .tagPhotos, .chat, .none:
             break
         }
 

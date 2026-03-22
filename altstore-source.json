@@ -15,10 +15,10 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "1.4",
+          "version": "1.5",
           "buildVersion": "1",
           "date": "2026-03-22",
-          "localizedDescription": "v31: Los 12 botones de categoría ahora funcionan. Timeline, Lugares (GPS), Personas (detección de caras con Vision), Capturas, Duplicados, Favoritos, Videos, Selfies, Live Photos, Documentos (detección de texto con Vision), Noche (fotos 20hs-6hs), Tags IA. Nueva vista de detalle con grid filtrado y botón volver.",
+          "localizedDescription": "v32: Categorías reales (Recientes, Lugares, Personas, Capturas, Duplicados, Favoritos, Videos, Selfies, Live Photos, Documentos, Paisajes). Búsqueda IA por texto libre con Groq. Escaneo en background con persistencia — indexa todas las fotos progresivamente.",
           "downloadURL": "https://raw.githubusercontent.com/arenazl/fotify-dist/main/Fotify.ipa",
           "size": 147800,
           "minOSVersion": "18.0"

@@ -1,205 +1,293 @@
 import SwiftUI
 import Photos
-import Vision
 
 struct CategoryDetailView: View {
     let category: PhotoCategory
     let onBack: () -> Void
     @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @ObservedObject var tagsVM: TagsViewModel
     @State private var assets: [PHAsset] = []
+    @State private var fetchResult: PHFetchResult<PHAsset>?
+    @State private var totalCount: Int = 0
     @State private var isLoading = true
-    @State private var scanProgress: Double = 0
+    @State private var dragOffset: CGFloat = 0
+    @State private var searchText: String = ""
+    @State private var isSearching = false
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 3)
-
-    /// Categories that need Vision scanning instead of simple fetch
-    private var needsVisionScan: Bool {
-        category == .people || category == .documents
-    }
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack(spacing: 12) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial.opacity(0.5))
-                        .clipShape(Circle())
-                }
+            headerView
 
-                Image(systemName: category.icon)
-                    .font(.title3)
-                    .foregroundStyle(category.color)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(category.label.uppercased())
-                        .font(.caption.bold())
-                        .kerning(2)
-                        .foregroundStyle(category.color)
-                    if isLoading && needsVisionScan {
-                        Text("Escaneando... \(Int(scanProgress * 100))%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("\(assets.count) elementos")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+            if category == .aiSearch {
+                aiSearchView
+            } else if isLoading {
+                loadingView
+            } else if totalCount == 0 {
+                emptyView
+            } else {
+                photoGrid
+            }
+        }
+        .offset(x: dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if value.translation.width > 0 {
+                        dragOffset = value.translation.width
                     }
                 }
-
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-
-            // Content
-            if isLoading {
-                Spacer()
-                VStack(spacing: 16) {
-                    if needsVisionScan {
-                        // Scan progress
-                        ZStack {
-                            Circle()
-                                .stroke(Color.white.opacity(0.1), lineWidth: 3)
-                                .frame(width: 100, height: 100)
-                            Circle()
-                                .trim(from: 0, to: scanProgress)
-                                .stroke(category.color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                                .frame(width: 100, height: 100)
-                                .rotationEffect(.degrees(-90))
-                            VStack(spacing: 2) {
-                                Image(systemName: category.icon)
-                                    .font(.title2)
-                                    .foregroundStyle(category.color)
-                                Text("\(Int(scanProgress * 100))%")
-                                    .font(.caption2.bold())
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                        Text("Analizando fotos con Vision...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        // Show results as they come in
-                        if !assets.isEmpty {
-                            Text("\(assets.count) encontradas")
-                                .font(.caption2)
-                                .foregroundStyle(category.color)
-                        }
+                .onEnded { value in
+                    if value.translation.width > 100 {
+                        onBack()
                     } else {
-                        ProgressView("Cargando \(category.label.lowercased())...")
-                            .tint(.white)
+                        withAnimation(.spring(duration: 0.3)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
+        .task {
+            if category != .aiSearch {
+                await loadContent()
+            } else {
+                isLoading = false
+            }
+        }
+    }
+
+    // MARK: - Header
+
+    private var headerView: some View {
+        HStack(spacing: 12) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial.opacity(0.5))
+                    .clipShape(Circle())
+            }
+
+            Image(systemName: category.icon)
+                .font(.title3)
+                .foregroundStyle(category.color)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.label.uppercased())
+                    .font(.caption.bold())
+                    .kerning(2)
+                    .foregroundStyle(category.color)
+                if category.needsVisionScan {
+                    Text("\(totalCount) encontradas · \(tagsVM.scannedCount)/\(tagsVM.totalCount) escaneadas")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if category != .aiSearch {
+                    Text("\(totalCount) elementos")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - AI Search View
+
+    private var aiSearchView: some View {
+        VStack(spacing: 16) {
+            // Search bar
+            HStack {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .foregroundStyle(.purple)
+                TextField("Buscá: perro, playa, comida...", text: $searchText)
+                    .onSubmit { Task { await performSearch() } }
+                if isSearching {
+                    ProgressView().tint(.purple).scaleEffect(0.8)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 20)
+
+            // Scan status
+            if case .scanning(let progress) = tagsVM.state {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.purple).scaleEffect(0.7)
+                    Text("Escaneando biblioteca... \(Int(progress * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else if tagsVM.scannedCount > 0 {
+                Text("\(tagsVM.scannedCount) fotos indexadas para búsqueda")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Results
+            if assets.isEmpty && !searchText.isEmpty && !isSearching {
+                Spacer()
+                VStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary)
+                    Text("Sin resultados para \"\(searchText)\"")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if tagsVM.scannedCount < tagsVM.totalCount {
+                        Text("Aún faltan \(tagsVM.totalCount - tagsVM.scannedCount) fotos por escanear")
+                            .font(.caption2)
+                            .foregroundStyle(.purple)
                     }
                 }
                 Spacer()
             } else if assets.isEmpty {
                 Spacer()
-                VStack(spacing: 16) {
-                    Image(systemName: category.icon)
+                VStack(spacing: 12) {
+                    Image(systemName: "sparkle.magnifyingglass")
                         .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("Sin \(category.label.lowercased()) disponibles")
+                        .foregroundStyle(.purple.opacity(0.5))
+                    Text("Escribí qué querés buscar")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
             } else {
+                Text("\(assets.count) resultados")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                 ScrollView(showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 4) {
+                    LazyVGrid(columns: columns, spacing: 2) {
                         ForEach(0..<assets.count, id: \.self) { index in
                             CategoryPhotoCell(asset: assets[index])
                         }
                     }
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 2)
                 }
             }
         }
-        .task {
-            await loadAssets()
+    }
+
+    // MARK: - Loading
+
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ProgressView("Cargando...")
+                .tint(.white)
+            Spacer()
         }
     }
 
-    private func loadAssets() async {
-        switch category {
-        case .people:
-            await scanWithVision(detectFaces: true)
-        case .documents:
-            await scanWithVision(detectFaces: false)
-        default:
-            assets = photoLibrary.assets(for: category)
-            isLoading = false
+    // MARK: - Empty
+
+    private var emptyView: some View {
+        VStack {
+            Spacer()
+            Image(systemName: category.icon)
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Sin \(category.label.lowercased())")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if category.needsVisionScan && tagsVM.scannedCount < tagsVM.totalCount {
+                Text("Escaneando en background... \(tagsVM.scannedCount)/\(tagsVM.totalCount)")
+                    .font(.caption2)
+                    .foregroundStyle(.purple)
+                    .padding(.top, 4)
+            }
+            Spacer()
         }
     }
 
-    /// Scans photos using Vision framework for faces or text/documents
-    private func scanWithVision(detectFaces: Bool) async {
-        guard let allPhotos = photoLibrary.allPhotos else {
-            isLoading = false
-            return
-        }
+    // MARK: - Photo Grid
 
-        let totalCount = min(allPhotos.count, 500)
-        var found: [PHAsset] = []
-
-        for i in 0..<totalCount {
-            let asset = allPhotos.object(at: i)
-
-            if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 300, height: 300)),
-               let cgImage = image.cgImage {
-
-                let matches: Bool
-                if detectFaces {
-                    matches = await detectFacesInImage(cgImage)
+    private var photoGrid: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVGrid(columns: columns, spacing: 2) {
+                if let fetch = fetchResult {
+                    ForEach(0..<fetch.count, id: \.self) { index in
+                        CategoryPhotoCell(asset: fetch.object(at: index))
+                    }
                 } else {
-                    matches = await detectTextInImage(cgImage)
-                }
-
-                if matches {
-                    found.append(asset)
-                    assets = found
+                    ForEach(0..<assets.count, id: \.self) { index in
+                        CategoryPhotoCell(asset: assets[index])
+                    }
                 }
             }
-
-            scanProgress = Double(i + 1) / Double(totalCount)
-        }
-
-        assets = found
-        isLoading = false
-    }
-
-    /// Detects faces using VNDetectFaceRectanglesRequest
-    private func detectFacesInImage(_ cgImage: CGImage) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let request = VNDetectFaceRectanglesRequest { request, _ in
-                let faceCount = (request.results as? [VNFaceObservation])?.count ?? 0
-                continuation.resume(returning: faceCount > 0)
-            }
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(returning: false)
-            }
+            .padding(.horizontal, 2)
         }
     }
 
-    /// Detects text/documents using VNDetectTextRectanglesRequest
-    private func detectTextInImage(_ cgImage: CGImage) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let request = VNDetectTextRectanglesRequest { request, _ in
-                let textRegions = (request.results as? [VNTextObservation])?.count ?? 0
-                // Consider it a "document" if it has 3+ text regions
-                continuation.resume(returning: textRegions >= 3)
-            }
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(returning: false)
-            }
+    // MARK: - Load Content
+
+    private func loadContent() async {
+        switch category {
+        // PHFetchResult-backed — instant
+        case .recents, .screenshots, .favorites, .videos, .selfies, .livePhotos:
+            let fetch = photoLibrary.fetchResult(for: category)
+            fetchResult = fetch
+            totalCount = fetch?.count ?? 0
+            isLoading = false
+
+        // Filtered by location
+        case .places:
+            let filtered = await photoLibrary.filteredAssets(for: category, limit: 300)
+            assets = filtered
+            totalCount = filtered.count
+            isLoading = false
+
+        // People — use selfies album as proxy (iOS face detection)
+        case .people:
+            let fetch = photoLibrary.fetchResult(for: .selfies)
+            fetchResult = fetch
+            totalCount = fetch?.count ?? 0
+            isLoading = false
+
+        // Vision-backed categories — from persisted tags
+        case .documents, .landscapes:
+            let found = tagsVM.photosForCategory(category, photoLibrary: photoLibrary)
+            assets = found
+            totalCount = found.count
+            isLoading = false
+
+        case .duplicates, .aiSearch:
+            isLoading = false
         }
+    }
+
+    // MARK: - AI Search
+
+    private func performSearch() async {
+        guard !searchText.isEmpty else { return }
+        isSearching = true
+
+        let availableTags = tagsVM.availableTags
+        let response = await GrokService.shared.processCommand(
+            searchText,
+            photoLibrary: photoLibrary,
+            availableTags: availableTags
+        )
+
+        switch response.action {
+        case .searchByTags(let tags):
+            assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
+        default:
+            // Direct tag match as fallback
+            assets = tagsVM.search(tags: [searchText], photoLibrary: photoLibrary)
+        }
+
+        totalCount = assets.count
+        isSearching = false
     }
 }
 
@@ -218,17 +306,14 @@ struct CategoryPhotoCell: View {
                     .scaledToFill()
             } else {
                 Rectangle()
-                    .fill(.gray.opacity(0.2))
-                    .overlay {
-                        ProgressView().tint(.white).scaleEffect(0.7)
-                    }
+                    .fill(.gray.opacity(0.15))
             }
         }
         .aspectRatio(1, contentMode: .fill)
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .clipShape(RoundedRectangle(cornerRadius: 2))
         .task(id: asset.localIdentifier) {
-            image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 300, height: 300))
+            image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200))
         }
     }
 }

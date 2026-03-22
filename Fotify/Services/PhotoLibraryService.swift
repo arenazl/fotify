@@ -4,15 +4,15 @@ import Photos
 // MARK: - Photo Category
 
 enum PhotoCategory: String, CaseIterable, Identifiable {
-    case timeline, places, people, screenshots, duplicates
+    case recents, places, people, screenshots, duplicates
     case favorites, videos, selfies, livePhotos
-    case documents, night, aiTags
+    case documents, landscapes, aiSearch
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .timeline: "Timeline"
+        case .recents: "Recientes"
         case .places: "Lugares"
         case .people: "Personas"
         case .screenshots: "Capturas"
@@ -22,14 +22,14 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .selfies: "Selfies"
         case .livePhotos: "Live Photos"
         case .documents: "Documentos"
-        case .night: "Noche"
-        case .aiTags: "Tags IA"
+        case .landscapes: "Paisajes"
+        case .aiSearch: "Buscar IA"
         }
     }
 
     var icon: String {
         switch self {
-        case .timeline: "clock.arrow.circlepath"
+        case .recents: "clock.arrow.circlepath"
         case .places: "map"
         case .people: "person.2.fill"
         case .screenshots: "rectangle.dashed"
@@ -39,14 +39,14 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .selfies: "person.crop.square"
         case .livePhotos: "camera.viewfinder"
         case .documents: "doc.text.viewfinder"
-        case .night: "moon.stars.fill"
-        case .aiTags: "tag.fill"
+        case .landscapes: "mountain.2.fill"
+        case .aiSearch: "sparkle.magnifyingglass"
         }
     }
 
     var color: Color {
         switch self {
-        case .timeline: .blue
+        case .recents: .blue
         case .places: .green
         case .people: .pink
         case .screenshots: .orange
@@ -56,19 +56,21 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .selfies: .indigo
         case .livePhotos: .mint
         case .documents: .brown
-        case .night: .indigo
-        case .aiTags: .purple
+        case .landscapes: .teal
+        case .aiSearch: .purple
         }
     }
 
-    /// Categories that navigate to their own specialized view instead of a generic grid
-    var hasCustomView: Bool {
+    /// Categories that need Vision background scan
+    var needsVisionScan: Bool {
         switch self {
-        case .screenshots, .duplicates: true
+        case .documents, .landscapes: true
         default: false
         }
     }
 }
+
+// MARK: - Photo Library Service
 
 @MainActor
 class PhotoLibraryService: ObservableObject {
@@ -79,14 +81,14 @@ class PhotoLibraryService: ObservableObject {
     @Published var videos: PHFetchResult<PHAsset>?
     @Published var selfies: PHFetchResult<PHAsset>?
     @Published var livePhotos: PHFetchResult<PHAsset>?
+    @Published var people: PHFetchResult<PHAsset>?
     @Published var photoCount: Int = 0
     @Published var screenshotCount: Int = 0
     @Published var favoritesCount: Int = 0
     @Published var videosCount: Int = 0
     @Published var selfiesCount: Int = 0
     @Published var livePhotosCount: Int = 0
-    @Published var placesCount: Int = 0
-    @Published var nightCount: Int = 0
+    @Published var peopleCount: Int = 0
     @Published var isLoading: Bool = false
 
     private let imageManager = PHCachingImageManager()
@@ -109,83 +111,124 @@ class PhotoLibraryService: ObservableObject {
     func loadLibrary() async {
         isLoading = true
 
-        // Fetch all photos sorted by date
+        let defaultSort = [NSSortDescriptor(key: "creationDate", ascending: false)]
+
+        // All photos
         let allOptions = PHFetchOptions()
-        allOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        allOptions.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        allOptions.sortDescriptors = defaultSort
         allPhotos = PHAsset.fetchAssets(with: .image, options: allOptions)
         photoCount = allPhotos?.count ?? 0
 
-        // Fetch screenshots
+        // Screenshots
         let screenshotOptions = PHFetchOptions()
-        screenshotOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        screenshotOptions.sortDescriptors = defaultSort
         screenshotOptions.predicate = NSPredicate(
-            format: "mediaType == %d AND (mediaSubtypes & %d) != 0",
-            PHAssetMediaType.image.rawValue,
+            format: "(mediaSubtypes & %d) != 0",
             PHAssetMediaSubtype.photoScreenshot.rawValue
         )
         screenshots = PHAsset.fetchAssets(with: .image, options: screenshotOptions)
         screenshotCount = screenshots?.count ?? 0
 
-        // Fetch favorites
+        // Favorites
         let favOptions = PHFetchOptions()
-        favOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        favOptions.predicate = NSPredicate(format: "isFavorite == YES")
+        favOptions.sortDescriptors = defaultSort
+        favOptions.predicate = NSPredicate(format: "isFavorite == YES AND mediaType == %d", PHAssetMediaType.image.rawValue)
         favorites = PHAsset.fetchAssets(with: favOptions)
         favoritesCount = favorites?.count ?? 0
 
-        // Fetch videos
+        // Videos
         let videoOptions = PHFetchOptions()
-        videoOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        videoOptions.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
-        videos = PHAsset.fetchAssets(with: videoOptions)
+        videoOptions.sortDescriptors = defaultSort
+        videos = PHAsset.fetchAssets(with: .video, options: videoOptions)
         videosCount = videos?.count ?? 0
 
-        // Fetch selfies (from smart album)
+        // Selfies
         let selfieCollections = PHAssetCollection.fetchAssetCollections(
             with: .smartAlbum, subtype: .smartAlbumSelfPortraits, options: nil
         )
         if let selfieAlbum = selfieCollections.firstObject {
             let selfieOptions = PHFetchOptions()
-            selfieOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            selfieOptions.sortDescriptors = defaultSort
             selfies = PHAsset.fetchAssets(in: selfieAlbum, options: selfieOptions)
         }
         selfiesCount = selfies?.count ?? 0
 
-        // Fetch live photos
+        // Live Photos
         let liveOptions = PHFetchOptions()
-        liveOptions.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        liveOptions.sortDescriptors = defaultSort
         liveOptions.predicate = NSPredicate(
-            format: "mediaType == %d AND (mediaSubtypes & %d) != 0",
-            PHAssetMediaType.image.rawValue,
+            format: "(mediaSubtypes & %d) != 0",
             PHAssetMediaSubtype.photoLive.rawValue
         )
         livePhotos = PHAsset.fetchAssets(with: .image, options: liveOptions)
         livePhotosCount = livePhotos?.count ?? 0
 
-        // Count places & night photos from allPhotos (single pass)
-        var locationCount = 0
-        var nightPhotoCount = 0
-        let calendar = Calendar.current
-        if let all = allPhotos {
-            for i in 0..<min(all.count, 1000) {
-                let asset = all.object(at: i)
-                if asset.location != nil {
-                    locationCount += 1
-                }
-                if let date = asset.creationDate {
-                    let hour = calendar.component(.hour, from: date)
-                    if hour >= 20 || hour < 6 {
-                        nightPhotoCount += 1
-                    }
+        // People — fetch all person smart albums and collect their assets
+        var allPeopleAssets: [PHAsset] = []
+        let personCollections = PHAssetCollection.fetchAssetCollections(
+            with: .smartAlbum, subtype: .smartAlbumAllHidden, options: nil
+        )
+        // Try fetching from Faces/People albums
+        let faceCollections = PHCollectionList.fetchTopLevelUserCollections(with: nil)
+        for i in 0..<faceCollections.count {
+            if let collection = faceCollections.object(at: i) as? PHAssetCollection,
+               collection.localizedTitle?.lowercased().contains("people") == true ||
+               collection.localizedTitle?.lowercased().contains("personas") == true {
+                let assets = PHAsset.fetchAssets(in: collection, options: nil)
+                for j in 0..<min(assets.count, 300) {
+                    allPeopleAssets.append(assets.object(at: j))
                 }
             }
         }
-        placesCount = locationCount
-        nightCount = nightPhotoCount
+        peopleCount = allPeopleAssets.count
 
         isLoading = false
     }
+
+    // MARK: - Category Data
+
+    func count(for category: PhotoCategory) -> Int? {
+        switch category {
+        case .recents: return photoCount
+        case .screenshots: return screenshotCount > 0 ? screenshotCount : nil
+        case .favorites: return favoritesCount > 0 ? favoritesCount : nil
+        case .videos: return videosCount > 0 ? videosCount : nil
+        case .selfies: return selfiesCount > 0 ? selfiesCount : nil
+        case .livePhotos: return livePhotosCount > 0 ? livePhotosCount : nil
+        case .people: return peopleCount > 0 ? peopleCount : nil
+        case .places, .documents, .landscapes, .duplicates, .aiSearch: return nil
+        }
+    }
+
+    func fetchResult(for category: PhotoCategory) -> PHFetchResult<PHAsset>? {
+        switch category {
+        case .recents: return allPhotos
+        case .screenshots: return screenshots
+        case .favorites: return favorites
+        case .videos: return videos
+        case .selfies: return selfies
+        case .livePhotos: return livePhotos
+        default: return nil
+        }
+    }
+
+    func filteredAssets(for category: PhotoCategory, limit: Int = 300) async -> [PHAsset] {
+        guard let all = allPhotos else { return [] }
+        var result: [PHAsset] = []
+
+        if category == .places {
+            for i in 0..<all.count {
+                let asset = all.object(at: i)
+                if asset.location != nil {
+                    result.append(asset)
+                    if result.count >= limit { break }
+                }
+            }
+        }
+        return result
+    }
+
+    // MARK: - Images
 
     func thumbnail(for asset: PHAsset, size: CGSize) async -> UIImage? {
         await withCheckedContinuation { continuation in
@@ -221,74 +264,6 @@ class PhotoLibraryService: ObservableObject {
                 continuation.resume(returning: image)
             }
         }
-    }
-
-    /// Returns the count for a given category
-    func count(for category: PhotoCategory) -> Int? {
-        switch category {
-        case .timeline: return photoCount
-        case .places: return placesCount > 0 ? placesCount : nil
-        case .screenshots: return screenshotCount
-        case .favorites: return favoritesCount > 0 ? favoritesCount : nil
-        case .videos: return videosCount > 0 ? videosCount : nil
-        case .selfies: return selfiesCount > 0 ? selfiesCount : nil
-        case .livePhotos: return livePhotosCount > 0 ? livePhotosCount : nil
-        case .night: return nightCount > 0 ? nightCount : nil
-        case .people, .documents, .duplicates, .aiTags: return nil
-        }
-    }
-
-    /// Returns assets for a given category
-    func assets(for category: PhotoCategory) -> [PHAsset] {
-        let fetchResult: PHFetchResult<PHAsset>?
-        switch category {
-        case .timeline:
-            fetchResult = allPhotos
-        case .places:
-            // Filter allPhotos by location
-            guard let all = allPhotos else { return [] }
-            var result: [PHAsset] = []
-            for i in 0..<all.count {
-                let asset = all.object(at: i)
-                if asset.location != nil {
-                    result.append(asset)
-                }
-            }
-            return result
-        case .screenshots:
-            fetchResult = screenshots
-        case .favorites:
-            fetchResult = favorites
-        case .videos:
-            fetchResult = videos
-        case .selfies:
-            fetchResult = selfies
-        case .livePhotos:
-            fetchResult = livePhotos
-        case .night:
-            // Filter allPhotos by hour (8PM to 6AM)
-            guard let all = allPhotos else { return [] }
-            let calendar = Calendar.current
-            var result: [PHAsset] = []
-            for i in 0..<all.count {
-                let asset = all.object(at: i)
-                if let date = asset.creationDate {
-                    let hour = calendar.component(.hour, from: date)
-                    if hour >= 20 || hour < 6 {
-                        result.append(asset)
-                    }
-                }
-            }
-            return result
-        case .people, .documents, .duplicates, .aiTags:
-            fetchResult = nil
-        }
-        guard let result = fetchResult else { return [] }
-        var assets: [PHAsset] = []
-        for i in 0..<result.count {
-            assets.append(result.object(at: i))
-        }
-        return assets
     }
 
     func deleteAssets(_ assets: [PHAsset]) async throws {
