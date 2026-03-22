@@ -78,7 +78,7 @@ jobs:
 
       - name: Deploy IPA to fotify-dist
         run: |
-          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/arenazl/fotify-dist.git dist-repo
+          git clone https://x-access-token:${{ secrets.DIST_PAT }}@github.com/arenazl/fotify-dist.git dist-repo
           cp build/Fotify.ipa dist-repo/Fotify.ipa
           cd dist-repo
           git config user.name "github-actions"
