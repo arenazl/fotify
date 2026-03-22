@@ -9,6 +9,7 @@ struct GrokCommandResponse {
         case showDuplicates
         case showPhotos
         case tagPhotos
+        case searchByTags([String])
         case chat(String)
         case none
     }
@@ -30,78 +31,45 @@ actor GrokService {
 
     // MARK: - Command Processing
 
-    func processCommand(_ command: String, photoLibrary: PhotoLibraryService) async -> GrokCommandResponse {
+    func processCommand(_ command: String, photoLibrary: PhotoLibraryService, availableTags: [String]) async -> GrokCommandResponse {
+        // Local matching first
         let lower = command.lowercased()
 
-        // Local matching first
         if lower.contains("captura") || lower.contains("screenshot") {
             return GrokCommandResponse(action: .showScreenshots, message: "Mostrando capturas")
         }
         if lower.contains("duplicado") || lower.contains("repetid") {
             return GrokCommandResponse(action: .showDuplicates, message: "Buscando duplicados")
         }
-        if lower.contains("foto") || lower.contains("galería") || lower.contains("librería") {
-            return GrokCommandResponse(action: .showPhotos, message: "Mostrando librería")
-        }
-        if lower.contains("tag") || lower.contains("etiquet") || lower.contains("clasific") {
-            return GrokCommandResponse(action: .tagPhotos, message: "Clasificando fotos")
-        }
 
         guard isConfigured else {
             return GrokCommandResponse(action: .none, message: "API key no configurada.")
         }
 
-        return await sendChat(prompt: """
-            Sos el asistente de Fotify, una app de gestión de fotos para iOS.
-            El usuario tiene \(await photoLibrary.photoCount) fotos y \(await photoLibrary.screenshotCount) capturas.
-            Respondé en español, breve (max 2 oraciones).
-            Si el usuario pide una acción, respondé con JSON:
-            {"action": "screenshots|duplicates|photos|tags", "message": "tu respuesta"}
-            Si es solo pregunta:
-            {"action": "none", "message": "tu respuesta"}
-            Usuario: \(command)
-        """)
-    }
+        // Send to Groq with context about available tags
+        let tagList = availableTags.isEmpty ? "No hay tags disponibles aún. Sugerí al usuario clasificar primero." : availableTags.joined(separator: ", ")
 
-    // MARK: - Image Classification
+        let prompt = """
+        Sos el asistente de Fotify, una app de fotos para iOS.
+        El usuario tiene \(await photoLibrary.photoCount) fotos y \(await photoLibrary.screenshotCount) capturas.
 
-    func classifyImage(_ image: UIImage) async -> [String] {
-        guard isConfigured else { return [] }
-        guard let imageData = image.jpegData(compressionQuality: 0.7) else { return [] }
-        let base64 = imageData.base64EncodedString()
+        Tags disponibles en la librería: \(tagList)
 
-        let requestBody: [String: Any] = [
-            "model": "llama-3.2-90b-vision-preview",
-            "messages": [
-                [
-                    "role": "system",
-                    "content": """
-                        You are a photo classifier. Return ONLY a JSON array of tags in Spanish.
-                        Categories: paisaje, retrato, selfie, comida, mascota, documento, meme,
-                        captura_pantalla, naturaleza, ciudad, playa, montaña, familia, amigos, deporte,
-                        arte, texto, recibo, noche, atardecer, interior, exterior, vehiculo, celebracion.
-                        Return 3-7 tags. Example: ["paisaje", "naturaleza", "montaña"]
-                    """
-                ],
-                [
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "image_url",
-                            "image_url": ["url": "data:image/jpeg;base64,\(base64)"]
-                        ],
-                        [
-                            "type": "text",
-                            "text": "Classify this photo with tags."
-                        ]
-                    ]
-                ]
-            ],
-            "max_tokens": 200,
-            "temperature": 0.3
-        ]
+        El usuario dice: "\(command)"
 
-        return await sendImageRequest(requestBody) ?? []
+        Respondé SOLO con este JSON (sin markdown, sin ```):
+        {"action": "search", "tags": ["tag1", "tag2"], "message": "tu respuesta corta en español"}
+
+        Si pide buscar fotos (de perros, paisajes, comida, etc), mapeá su pedido a los tags disponibles más cercanos.
+        Si no hay tags disponibles, usá action "classify" y sugerí clasificar primero.
+        Si pide ver capturas, usá action "screenshots".
+        Si pide duplicados, usá action "duplicates".
+        Si es una pregunta general, usá action "chat".
+        """
+
+        let response = await sendChat(prompt: prompt)
+
+        return response
     }
 
     // MARK: - HTTP
@@ -125,6 +93,7 @@ actor GrokService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = jsonData
+        request.timeoutInterval = 15
 
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
@@ -135,33 +104,10 @@ actor GrokService {
                 return parseCommandResponse(content)
             }
         } catch {
-            return GrokCommandResponse(action: .none, message: "Error: \(error.localizedDescription)")
+            return GrokCommandResponse(action: .chat("Error: \(error.localizedDescription)"), message: "Error de conexión")
         }
 
         return GrokCommandResponse(action: .none, message: "Sin respuesta")
-    }
-
-    private func sendImageRequest(_ body: [String: Any]) async -> [String]? {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
-
-        var request = URLRequest(url: URL(string: baseURL)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.httpBody = jsonData
-
-        do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let choices = json["choices"] as? [[String: Any]],
-               let message = choices.first?["message"] as? [String: Any],
-               let content = message["content"] as? String {
-                return parseTags(from: content)
-            }
-        } catch {
-            print("Groq API error: \(error)")
-        }
-        return nil
     }
 
     // MARK: - Parsing
@@ -169,58 +115,34 @@ actor GrokService {
     private func parseCommandResponse(_ content: String) -> GrokCommandResponse {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let data = trimmed.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-           let actionStr = json["action"],
-           let message = json["message"] {
-            let action: GrokCommandResponse.Action = switch actionStr {
-            case "screenshots": .showScreenshots
-            case "duplicates": .showDuplicates
-            case "photos": .showPhotos
-            case "tags": .tagPhotos
-            default: .none
-            }
-            return GrokCommandResponse(action: action, message: message)
-        }
-
+        // Find JSON in response
+        var jsonString = trimmed
         if let start = trimmed.firstIndex(of: "{"),
            let end = trimmed.lastIndex(of: "}") {
-            let jsonString = String(trimmed[start...end])
-            if let data = jsonString.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-               let message = json["message"] {
-                let actionStr = json["action"] ?? "none"
-                let action: GrokCommandResponse.Action = switch actionStr {
-                case "screenshots": .showScreenshots
-                case "duplicates": .showDuplicates
-                case "photos": .showPhotos
-                case "tags": .tagPhotos
-                default: .none
-                }
-                return GrokCommandResponse(action: action, message: message)
-            }
+            jsonString = String(trimmed[start...end])
         }
 
-        return GrokCommandResponse(action: .chat(trimmed), message: trimmed)
-    }
-
-    private func parseTags(from content: String) -> [String] {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if let data = trimmed.data(using: .utf8),
-           let tags = try? JSONSerialization.jsonObject(with: data) as? [String] {
-            return tags
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let actionStr = json["action"] as? String,
+              let message = json["message"] as? String else {
+            return GrokCommandResponse(action: .chat(trimmed), message: trimmed)
         }
 
-        if let start = trimmed.firstIndex(of: "["),
-           let end = trimmed.lastIndex(of: "]") {
-            let jsonString = String(trimmed[start...end])
-            if let data = jsonString.data(using: .utf8),
-               let tags = try? JSONSerialization.jsonObject(with: data) as? [String] {
-                return tags
-            }
+        switch actionStr {
+        case "search":
+            let tags = json["tags"] as? [String] ?? []
+            return GrokCommandResponse(action: .searchByTags(tags), message: message)
+        case "classify":
+            return GrokCommandResponse(action: .tagPhotos, message: message)
+        case "screenshots":
+            return GrokCommandResponse(action: .showScreenshots, message: message)
+        case "duplicates":
+            return GrokCommandResponse(action: .showDuplicates, message: message)
+        case "chat":
+            return GrokCommandResponse(action: .chat(message), message: message)
+        default:
+            return GrokCommandResponse(action: .chat(message), message: message)
         }
-
-        return []
     }
 }

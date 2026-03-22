@@ -50,6 +50,9 @@ struct ContentView: View {
     @State private var selectedModule: AppModule = .dashboard
     @State private var aiCommand: String = ""
     @State private var isProcessingCommand = false
+    @State private var aiMessage: String = ""
+    @State private var searchResultTags: [String] = []
+    @StateObject private var tagsVM = TagsViewModel()
 
     enum AppModule: Int, CaseIterable {
         case dashboard = 0
@@ -128,6 +131,12 @@ struct ContentView: View {
                 neuralPulse = 1.5
             }
         }
+        .task {
+            // Auto-classify photos with Vision on first launch
+            if tagsVM.tagGroups.isEmpty {
+                await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
+            }
+        }
     }
 
     // MARK: - Header
@@ -139,7 +148,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .black))
                     .kerning(4)
                     .foregroundColor(Color.blue.opacity(0.8))
-                Text("Cortex v.28")
+                Text("Cortex v.29")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundColor(.white)
             }
@@ -233,6 +242,25 @@ struct ContentView: View {
             }
             .padding(.horizontal, 30)
 
+            // AI message
+            if !aiMessage.isEmpty {
+                Text(aiMessage)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.horizontal, 30)
+                    .transition(.opacity)
+            }
+
+            // Classification status
+            if case .classifying(let progress) = tagsVM.state {
+                HStack(spacing: 8) {
+                    ProgressView().tint(.purple).scaleEffect(0.8)
+                    Text("Clasificando... \(Int(progress * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(.purple)
+                }
+            }
+
             // Pulse indicator
             Circle()
                 .fill(.blue)
@@ -258,18 +286,32 @@ struct ContentView: View {
         isProcessingCommand = true
         let command = aiCommand
         aiCommand = ""
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
-        // Send to Grok for interpretation
-        let response = await GrokService.shared.processCommand(command, photoLibrary: photoLibrary)
+        // If no tags yet, classify first
+        if tagsVM.tagGroups.isEmpty {
+            withAnimation { aiMessage = "Clasificando fotos primero..." }
+            await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
+        }
 
-        // Handle Grok's response
+        let availableTags = Array(tagsVM.tagGroups.keys)
+        let response = await GrokService.shared.processCommand(command, photoLibrary: photoLibrary, availableTags: availableTags)
+
+        withAnimation { aiMessage = response.message }
+
         switch response.action {
         case .showScreenshots, .showDuplicates:
             withAnimation { selectedModule = .cleanup }
         case .showPhotos:
             withAnimation { selectedModule = .photos }
         case .tagPhotos:
+            if tagsVM.tagGroups.isEmpty {
+                await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
+            }
             withAnimation { selectedModule = .dashboard }
+        case .searchByTags(let tags):
+            searchResultTags = tags
+            withAnimation { selectedModule = .photos }
         case .chat, .none:
             break
         }
