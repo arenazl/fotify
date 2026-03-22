@@ -273,4 +273,11 @@ class PhotoLibraryService: ObservableObject {
         }
         await loadLibrary()
     }
+
+    func createAlbum(name: String, assets: [PHAsset]) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let albumRequest = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: name)
+            albumRequest.addAssets(assets as NSFastEnumeration)
+        }
+    }
 }

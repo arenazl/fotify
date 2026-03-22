@@ -10,6 +10,7 @@ struct GrokCommandResponse {
         case showPhotos
         case tagPhotos
         case searchByTags([String])
+        case createAlbum(String, [String]) // album name, search tags
         case chat(String)
         case none
     }
@@ -46,22 +47,22 @@ actor GrokService {
             return GrokCommandResponse(action: .none, message: "API key no configurada.")
         }
 
-        // Send to Groq with context about available tags
-        let tagList = availableTags.isEmpty ? "No hay tags disponibles aún. Sugerí al usuario clasificar primero." : availableTags.joined(separator: ", ")
-
+        // Send to Groq — extract search keywords from user command
         let prompt = """
         Sos el asistente de Fotify, una app de fotos para iOS.
-        El usuario tiene \(await photoLibrary.photoCount) fotos y \(await photoLibrary.screenshotCount) capturas.
-
-        Tags disponibles en la librería: \(tagList)
+        El usuario tiene \(await photoLibrary.photoCount) fotos indexadas con descripciones en español.
 
         El usuario dice: "\(command)"
 
         Respondé SOLO con este JSON (sin markdown, sin ```):
-        {"action": "search", "tags": ["tag1", "tag2"], "message": "tu respuesta corta en español"}
+        {"action": "search", "tags": ["palabra1", "palabra2"], "message": "tu respuesta corta en español"}
 
-        Si pide buscar fotos (de perros, paisajes, comida, etc), mapeá su pedido a los tags disponibles más cercanos.
-        Si no hay tags disponibles, usá action "classify" y sugerí clasificar primero.
+        Extraé las palabras clave en español para buscar en las descripciones de fotos.
+        Por ejemplo: "fotos de mendoza con roberto" → tags: ["mendoza", "roberto"]
+        "mi perro en la playa" → tags: ["perro", "playa"]
+        "comida japonesa" → tags: ["comida", "japonesa", "sushi"]
+
+        Si pide crear una carpeta/álbum, usá action "create_album" y en tags poné las palabras de búsqueda.
         Si pide ver capturas, usá action "screenshots".
         Si pide duplicados, usá action "duplicates".
         Si es una pregunta general, usá action "chat".
@@ -135,6 +136,10 @@ actor GrokService {
             return GrokCommandResponse(action: .searchByTags(tags), message: message)
         case "classify":
             return GrokCommandResponse(action: .tagPhotos, message: message)
+        case "create_album":
+            let tags = json["tags"] as? [String] ?? []
+            let albumName = json["album_name"] as? String ?? message
+            return GrokCommandResponse(action: .createAlbum(albumName, tags), message: message)
         case "screenshots":
             return GrokCommandResponse(action: .showScreenshots, message: message)
         case "duplicates":

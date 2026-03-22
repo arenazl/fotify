@@ -340,6 +340,19 @@ struct SearchTab: View {
         switch response.action {
         case .searchByTags(let tags):
             searchTags = tags
+        case .createAlbum(let albumName, let tags):
+            searchTags = tags
+            debugTags = tags
+            let result = tagsVM.searchWithDebug(tags: tags, photoLibrary: photoLibrary)
+            assets = result.assets
+            debugMatchedTags = result.matchedTags
+            // Create the album
+            if !assets.isEmpty {
+                try? await photoLibrary.createAlbum(name: albumName, assets: assets)
+                withAnimation { aiMessage = "Álbum \"\(albumName)\" creado con \(assets.count) fotos" }
+            }
+            isSearching = false
+            return
         default:
             searchTags = [searchText]
         }
