@@ -3,7 +3,6 @@ import Photos
 
 struct PhotoMeshView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
-    @StateObject private var tagsVM = TagsViewModel()
     @State private var groupedByMonth: [(String, [PHAsset])] = []
     @State private var isLoading = true
 
@@ -17,11 +16,6 @@ struct PhotoMeshView: View {
                 } else if groupedByMonth.isEmpty {
                     emptyState
                 } else {
-                    // Tags quick filter (if classified)
-                    if !tagsVM.tagGroups.isEmpty {
-                        tagFilterBar
-                    }
-
                     // Photo groups by month
                     ForEach(groupedByMonth, id: \.0) { month, assets in
                         monthSection(month: month, assets: assets)
@@ -32,30 +26,6 @@ struct PhotoMeshView: View {
         }
         .task {
             await groupPhotos()
-        }
-    }
-
-    // MARK: - Tag Filter
-
-    private var tagFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(tagsVM.sortedTags.prefix(10), id: \.key) { tag, photos in
-                    HStack(spacing: 6) {
-                        Text(tag)
-                            .font(.caption2.bold())
-                        Text("\(photos.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.purple.opacity(0.2))
-                    .clipShape(Capsule())
-                    .foregroundStyle(.white)
-                }
-            }
-            .padding(.horizontal, 20)
         }
     }
 
