@@ -14,18 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: List available Xcode versions
-        run: ls /Applications/ | grep Xcode
-
       - name: Select latest Xcode
         run: |
           XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
           echo "Using: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
-
-      - name: List available simulators
-        run: xcrun simctl list devices available | head -30
 
       - name: Build
         run: |
@@ -38,21 +32,28 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Archive for device
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create IPA
         run: |
-          xcodebuild archive \
+          # Build for device (unsigned)
+          xcodebuild build \
             -project Fotify.xcodeproj \
             -scheme Fotify \
             -destination 'generic/platform=iOS' \
-            -archivePath build/Fotify.xcarchive \
+            -configuration Debug \
+            -derivedDataPath build/derived \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Upload archive
-        if: github.event_name == 'workflow_dispatch'
+          # Package as IPA
+          APP_PATH=$(find build/derived -name "Fotify.app" -type d | head -1)
+          mkdir -p build/Payload
+          cp -r "$APP_PATH" build/Payload/
+          cd build
+          zip -r Fotify.ipa Payload/
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Fotify-archive
-          path: build/Fotify.xcarchive
+          name: Fotify-unsigned
+          path: build/Fotify.ipa
