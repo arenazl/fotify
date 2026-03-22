@@ -15,10 +15,10 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "1.5",
+          "version": "1.6",
           "buildVersion": "1",
           "date": "2026-03-22",
-          "localizedDescription": "v32: Categorías reales (Recientes, Lugares, Personas, Capturas, Duplicados, Favoritos, Videos, Selfies, Live Photos, Documentos, Paisajes). Búsqueda IA por texto libre con Groq. Escaneo en background con persistencia — indexa todas las fotos progresivamente.",
+          "localizedDescription": "Navegación nativa iOS: tabs Inicio/Biblioteca/Limpieza/Buscar. Swipe back en todas las pantallas. Capturas con conteo real. Búsqueda IA por texto libre. Escaneo de fotos en background sin congelar la app.",
           "downloadURL": "https://raw.githubusercontent.com/arenazl/fotify-dist/main/Fotify.ipa",
           "size": 147800,
           "minOSVersion": "18.0"
