@@ -76,6 +76,17 @@ jobs:
           cd build
           zip -r Fotify.ipa Payload/
 
+      - name: Deploy IPA to fotify-dist
+        run: |
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/arenazl/fotify-dist.git dist-repo
+          cp build/Fotify.ipa dist-repo/Fotify.ipa
+          cd dist-repo
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add Fotify.ipa
+          git commit -m "Update Fotify.ipa - $(date +%Y-%m-%d-%H%M)" || echo "No changes"
+          git push
+
       - name: Create GitHub Release
         run: |
           gh release delete latest --yes 2>/dev/null || true
