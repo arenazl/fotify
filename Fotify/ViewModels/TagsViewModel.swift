@@ -76,7 +76,7 @@ class TagsViewModel: ObservableObject {
     func backgroundScan(photoLibrary: PhotoLibraryService) async {
         guard let allPhotos = photoLibrary.allPhotos else { return }
 
-        let scanLimit = min(allPhotos.count, 2000)
+        let scanLimit = allPhotos.count
         totalCount = scanLimit
         let batchSize = 50
 
