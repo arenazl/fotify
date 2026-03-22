@@ -72,16 +72,17 @@ class TagsViewModel: ObservableObject {
 
     // MARK: - Background Scan
 
-    /// Scans photos in background batches of 50, without blocking UI
+    /// Scans most recent photos in background (limit 2000 to finish in minutes, not hours)
     func backgroundScan(photoLibrary: PhotoLibraryService) async {
         guard let allPhotos = photoLibrary.allPhotos else { return }
 
-        totalCount = allPhotos.count
+        let scanLimit = min(allPhotos.count, 2000)
+        totalCount = scanLimit
         let batchSize = 50
 
-        // Find which photos still need scanning
+        // Find which photos still need scanning (most recent first)
         var toScan: [(Int, PHAsset)] = []
-        for i in 0..<allPhotos.count {
+        for i in 0..<scanLimit {
             let asset = allPhotos.object(at: i)
             if tagIndex[asset.localIdentifier] == nil {
                 toScan.append((i, asset))
@@ -95,13 +96,16 @@ class TagsViewModel: ObservableObject {
 
         state = .scanning(Double(scannedCount) / Double(totalCount))
 
-        // Process in batches
+        // Process in batches at low priority so UI stays responsive
         for batchStart in stride(from: 0, to: toScan.count, by: batchSize) {
             let batchEnd = min(batchStart + batchSize, toScan.count)
             let batch = toScan[batchStart..<batchEnd]
 
             for (_, asset) in batch {
-                if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200)),
+                // Yield frequently to keep UI responsive
+                await Task.yield()
+
+                if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 100, height: 100)),
                    let cgImage = image.cgImage {
                     let tags = await classifyWithVision(cgImage: cgImage)
                     tagIndex[asset.localIdentifier] = tags
@@ -115,8 +119,8 @@ class TagsViewModel: ObservableObject {
             // Save after each batch
             persistTags()
 
-            // Yield to let UI breathe
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+            // Pause between batches to let UI breathe
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
         }
 
         state = .ready

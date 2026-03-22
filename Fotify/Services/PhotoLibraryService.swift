@@ -119,14 +119,15 @@ class PhotoLibraryService: ObservableObject {
         allPhotos = PHAsset.fetchAssets(with: .image, options: allOptions)
         photoCount = allPhotos?.count ?? 0
 
-        // Screenshots
-        let screenshotOptions = PHFetchOptions()
-        screenshotOptions.sortDescriptors = defaultSort
-        screenshotOptions.predicate = NSPredicate(
-            format: "(mediaSubtypes & %d) != 0",
-            PHAssetMediaSubtype.photoScreenshot.rawValue
+        // Screenshots (smart album — iOS manages this, more accurate)
+        let screenshotCollections = PHAssetCollection.fetchAssetCollections(
+            with: .smartAlbum, subtype: .smartAlbumScreenshots, options: nil
         )
-        screenshots = PHAsset.fetchAssets(with: .image, options: screenshotOptions)
+        if let screenshotAlbum = screenshotCollections.firstObject {
+            let screenshotOptions = PHFetchOptions()
+            screenshotOptions.sortDescriptors = defaultSort
+            screenshots = PHAsset.fetchAssets(in: screenshotAlbum, options: screenshotOptions)
+        }
         screenshotCount = screenshots?.count ?? 0
 
         // Favorites

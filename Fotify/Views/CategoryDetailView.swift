@@ -31,15 +31,16 @@ struct CategoryDetailView: View {
             }
         }
         .offset(x: dragOffset)
-        .gesture(
-            DragGesture()
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 20)
                 .onChanged { value in
-                    if value.translation.width > 0 {
+                    // Only respond to horizontal swipes starting from left side
+                    if value.startLocation.x < 40 && value.translation.width > 0 {
                         dragOffset = value.translation.width
                     }
                 }
                 .onEnded { value in
-                    if value.translation.width > 100 {
+                    if value.startLocation.x < 40 && value.translation.width > 80 {
                         onBack()
                     } else {
                         withAnimation(.spring(duration: 0.3)) {
