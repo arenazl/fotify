@@ -19,8 +19,8 @@
           "buildVersion": "1",
           "date": "2026-03-22",
           "localizedDescription": "Primera versión: dashboard, detección de capturas, scanner de duplicados, clasificación con IA.",
-          "downloadURL": "https://github.com/arenazl/fotify/releases/latest/download/Fotify.ipa",
-          "size": 500000,
+          "downloadURL": "https://raw.githubusercontent.com/arenazl/fotify-dist/main/Fotify.ipa",
+          "size": 147800,
           "minOSVersion": "18.0"
         }
       ],
