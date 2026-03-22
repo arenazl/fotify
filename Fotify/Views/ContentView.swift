@@ -139,7 +139,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .black))
                     .kerning(4)
                     .foregroundColor(Color.blue.opacity(0.8))
-                Text("Cortex v.27")
+                Text("Cortex v.28")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundColor(.white)
             }
@@ -198,7 +198,7 @@ struct ContentView: View {
 
             // Grok command input
             HStack {
-                TextField("Hablá con Grok...", text: $aiCommand)
+                TextField("Buscá o pedí algo...", text: $aiCommand)
                     .padding(.horizontal, 25)
                     .frame(height: 60)
                     .background(.ultraThinMaterial.opacity(0.5))

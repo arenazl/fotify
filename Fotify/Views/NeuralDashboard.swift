@@ -3,201 +3,236 @@ import Photos
 
 struct NeuralDashboard: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
-    @StateObject private var duplicatesVM = DuplicatesViewModel()
-    @State private var barHeights: [CGFloat] = (0..<10).map { _ in CGFloat.random(in: 20...100) }
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {
-                // Main stats card
-                statsCard
+                // Categories grid
+                categoriesGrid
 
-                // Quick actions
-                HStack(spacing: 16) {
-                    DashboardAction(
-                        icon: "doc.on.doc.fill",
-                        label: "Duplicados",
-                        count: duplicatesVM.duplicateGroups.count,
-                        color: .blue
-                    )
-
-                    DashboardAction(
-                        icon: "rectangle.dashed",
-                        label: "Capturas",
-                        count: photoLibrary.screenshotCount,
-                        color: .orange
-                    )
-
-                    DashboardAction(
-                        icon: "tag.fill",
-                        label: "Tags",
-                        count: 0,
-                        color: .purple
-                    )
-                }
-                .padding(.horizontal, 20)
-
-                // Recent photos preview
-                recentPhotosCard
+                // Timeline preview
+                timelinePreview
             }
             .padding(.top, 10)
         }
     }
 
-    // MARK: - Stats Card
+    // MARK: - Categories Grid
 
-    private var statsCard: some View {
-        VStack(spacing: 16) {
-            Text("INTELIGENCIA ACTIVA")
+    private var categoriesGrid: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("EXPLORAR")
                 .font(.caption2.bold())
-                .foregroundColor(.purple)
+                .kerning(2)
+                .foregroundStyle(.blue)
+                .padding(.leading, 24)
 
-            // Real photo count
-            Text("\(photoLibrary.photoCount)")
-                .font(.system(size: 48, weight: .ultraLight))
-                .foregroundStyle(.white)
-            +
-            Text(" fotos")
-                .font(.system(size: 18, weight: .ultraLight))
-                .foregroundStyle(.secondary)
+            LazyVGrid(columns: columns, spacing: 14) {
+                CategoryCard(
+                    icon: "clock.arrow.circlepath",
+                    label: "Timeline",
+                    count: photoLibrary.photoCount,
+                    color: .blue
+                )
 
-            // Library composition bar
-            if photoLibrary.photoCount > 0 {
-                libraryCompositionBar
-            }
+                CategoryCard(
+                    icon: "map",
+                    label: "Lugares",
+                    count: nil,
+                    color: .green
+                )
 
-            // Data visualizer (animated bars based on real distribution)
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(0..<10, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(
-                            LinearGradient(
-                                colors: [.blue.opacity(0.5), .purple.opacity(0.3)],
-                                startPoint: .bottom,
-                                endPoint: .top
-                            )
-                        )
-                        .frame(width: 15, height: barHeights[i])
-                }
+                CategoryCard(
+                    icon: "person.2.fill",
+                    label: "Personas",
+                    count: nil,
+                    color: .pink
+                )
+
+                CategoryCard(
+                    icon: "rectangle.dashed",
+                    label: "Capturas",
+                    count: photoLibrary.screenshotCount,
+                    color: .orange
+                )
+
+                CategoryCard(
+                    icon: "doc.on.doc.fill",
+                    label: "Duplicados",
+                    count: nil,
+                    color: .purple
+                )
+
+                CategoryCard(
+                    icon: "heart.fill",
+                    label: "Favoritos",
+                    count: nil,
+                    color: .red
+                )
+
+                CategoryCard(
+                    icon: "video.fill",
+                    label: "Videos",
+                    count: nil,
+                    color: .cyan
+                )
+
+                CategoryCard(
+                    icon: "person.crop.square",
+                    label: "Selfies",
+                    count: nil,
+                    color: .indigo
+                )
+
+                CategoryCard(
+                    icon: "camera.viewfinder",
+                    label: "Live Photos",
+                    count: nil,
+                    color: .mint
+                )
+
+                CategoryCard(
+                    icon: "doc.text.viewfinder",
+                    label: "Documentos",
+                    count: nil,
+                    color: .brown
+                )
+
+                CategoryCard(
+                    icon: "moon.stars.fill",
+                    label: "Noche",
+                    count: nil,
+                    color: .indigo
+                )
+
+                CategoryCard(
+                    icon: "tag.fill",
+                    label: "Tags IA",
+                    count: nil,
+                    color: .purple
+                )
             }
-            .frame(height: 100)
-            .onAppear {
-                // Animate bars based on real data distribution
-                updateBarHeights()
-            }
+            .padding(.horizontal, 20)
         }
-        .glassCard()
     }
 
-    private var libraryCompositionBar: some View {
-        VStack(spacing: 8) {
-            GeometryReader { geo in
-                let screenshotRatio = photoLibrary.photoCount > 0
-                    ? CGFloat(photoLibrary.screenshotCount) / CGFloat(photoLibrary.photoCount)
-                    : 0
-                let photoRatio = 1.0 - screenshotRatio
+    // MARK: - Timeline Preview
 
-                HStack(spacing: 2) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.blue)
-                        .frame(width: geo.size.width * photoRatio)
-
-                    if screenshotRatio > 0 {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(.orange)
-                            .frame(width: geo.size.width * screenshotRatio)
-                    }
-                }
-            }
-            .frame(height: 6)
-
+    private var timelinePreview: some View {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Fotos", systemImage: "circle.fill")
-                    .font(.system(size: 10))
+                Text("TIMELINE")
+                    .font(.caption2.bold())
+                    .kerning(2)
                     .foregroundStyle(.blue)
                 Spacer()
-                Label("Capturas \(Int(Double(photoLibrary.screenshotCount) / max(Double(photoLibrary.photoCount), 1) * 100))%", systemImage: "circle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                Text("Ver todo →")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+
+            if let photos = photoLibrary.allPhotos, photos.count > 0 {
+                // Today
+                timelineSection(title: "Hoy", assets: recentPhotos(from: photos, daysAgo: 0))
+
+                // Yesterday
+                timelineSection(title: "Ayer", assets: recentPhotos(from: photos, daysAgo: 1))
+
+                // This week
+                timelineSection(title: "Esta semana", assets: recentPhotos(from: photos, daysAgo: 7))
             }
         }
     }
 
-    // MARK: - Recent Photos
+    private func timelineSection(title: String, assets: [PHAsset]) -> some View {
+        Group {
+            if !assets.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(title)
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                        Text("\(assets.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 24)
 
-    private var recentPhotosCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("RECIENTES")
-                .font(.caption2.bold())
-                .foregroundColor(.blue)
-                .padding(.leading, 30)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    if let photos = photoLibrary.allPhotos {
-                        ForEach(0..<min(photos.count, 8), id: \.self) { index in
-                            let asset = photos.object(at: index)
-                            RecentPhotoCell(asset: asset)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(0..<min(assets.count, 10), id: \.self) { index in
+                                TimelineThumbnail(asset: assets[index])
+                            }
                         }
+                        .padding(.horizontal, 24)
                     }
                 }
-                .padding(.horizontal, 30)
             }
         }
     }
 
-    private func updateBarHeights() {
-        withAnimation(.spring(duration: 1.0).delay(0.3)) {
-            // Generate bars that reflect real library size
-            let base = max(CGFloat(photoLibrary.photoCount) / 1000.0, 1.0)
-            barHeights = (0..<10).map { i in
-                let screenshotWeight: CGFloat = i < 3 ? CGFloat(photoLibrary.screenshotCount) / max(CGFloat(photoLibrary.photoCount), 1) : 0
-                return min(CGFloat.random(in: 20...60) * base + screenshotWeight * 40, 100)
+    private func recentPhotos(from fetchResult: PHFetchResult<PHAsset>, daysAgo: Int) -> [PHAsset] {
+        let calendar = Calendar.current
+        let now = Date()
+        var result: [PHAsset] = []
+
+        for i in 0..<min(fetchResult.count, 500) {
+            let asset = fetchResult.object(at: i)
+            guard let date = asset.creationDate else { continue }
+
+            let daysDiff = calendar.dateComponents([.day], from: date, to: now).day ?? 0
+
+            if daysAgo == 0 && daysDiff == 0 {
+                result.append(asset)
+            } else if daysAgo == 1 && daysDiff == 1 {
+                result.append(asset)
+            } else if daysAgo == 7 && daysDiff >= 2 && daysDiff <= 7 {
+                result.append(asset)
             }
+
+            if result.count >= 20 { break }
         }
+        return result
     }
 }
 
-// MARK: - Dashboard Action Button
+// MARK: - Category Card
 
-struct DashboardAction: View {
+struct CategoryCard: View {
     let icon: String
     let label: String
-    let count: Int
+    let count: Int?
     let color: Color
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(
-                    .linearGradient(
-                        colors: [.white, .white.opacity(0.5)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
+                .font(.title3)
+                .foregroundStyle(color)
 
             Text(label)
                 .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.white)
 
-            if count > 0 {
+            if let count, count > 0 {
                 Text("\(count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(color)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 100)
+        .frame(height: 90)
         .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 30))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 
-// MARK: - Recent Photo Cell
+// MARK: - Timeline Thumbnail
 
-struct RecentPhotoCell: View {
+struct TimelineThumbnail: View {
     let asset: PHAsset
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @State private var image: UIImage?
@@ -214,14 +249,14 @@ struct RecentPhotoCell: View {
                     .overlay { ProgressView().tint(.white) }
             }
         }
-        .frame(width: 100, height: 100)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .frame(width: 80, height: 80)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 14)
                 .stroke(.white.opacity(0.1), lineWidth: 0.5)
         )
         .task(id: asset.localIdentifier) {
-            image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200))
+            image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 160, height: 160))
         }
     }
 }

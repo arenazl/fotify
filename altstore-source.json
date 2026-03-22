@@ -15,8 +15,8 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "1.1",
-          "buildVersion": "2",
+          "version": "1.2",
+          "buildVersion": "1",
           "date": "2026-03-22",
           "localizedDescription": "Primera versión: dashboard, detección de capturas, scanner de duplicados, clasificación con IA.",
           "downloadURL": "https://github.com/arenazl/fotify/releases/latest/download/Fotify.ipa",
