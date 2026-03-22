@@ -71,17 +71,17 @@ struct ContentView: View {
         TabView {
             CortexTab(tagsVM: tagsVM)
                 .tabItem {
-                    Label("Cortex", systemImage: "brain")
+                    Label("Inicio", systemImage: "square.grid.2x2.fill")
                 }
 
             MeshTab()
                 .tabItem {
-                    Label("Mesh", systemImage: "photo.on.rectangle.angled")
+                    Label("Biblioteca", systemImage: "photo.on.rectangle.angled")
                 }
 
             PurgeTab()
                 .tabItem {
-                    Label("Purge", systemImage: "flame")
+                    Label("Limpieza", systemImage: "trash.circle")
                 }
 
             SearchTab(tagsVM: tagsVM)
