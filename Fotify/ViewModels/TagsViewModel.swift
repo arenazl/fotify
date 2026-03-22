@@ -45,8 +45,10 @@ class TagsViewModel: ObservableObject {
     // MARK: - Persistence
 
     private var tagsFileURL: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs.appendingPathComponent("photo_tags.json")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        // Create directory if needed
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport.appendingPathComponent("photo_tags.json")
     }
 
     func loadPersistedTags() {
