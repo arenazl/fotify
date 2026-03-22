@@ -1,7 +1,7 @@
 import Foundation
 import UIKit
 
-// MARK: - Grok Response Model
+// MARK: - Response Model
 
 struct GrokCommandResponse {
     enum Action {
@@ -17,28 +17,25 @@ struct GrokCommandResponse {
     let message: String
 }
 
-// MARK: - Grok Service
+// MARK: - Groq Service (LLama 3.3 via Groq API)
 
 actor GrokService {
     static let shared = GrokService()
 
-    private let baseURL = "https://api.x.ai/v1/chat/completions"
-    private var apiKey: String {
-        ProcessInfo.processInfo.environment["GROK_API_KEY"] ?? Config.grokAPIKey
-    }
+    private let baseURL = "https://api.groq.com/openai/v1/chat/completions"
+    private var apiKey: String { Config.groqAPIKey }
+    private var model: String { Config.groqModel }
 
-    var isConfigured: Bool {
-        !apiKey.isEmpty
-    }
+    var isConfigured: Bool { !apiKey.isEmpty }
 
     // MARK: - Command Processing
 
     func processCommand(_ command: String, photoLibrary: PhotoLibraryService) async -> GrokCommandResponse {
-        // Local command matching first (no API needed)
         let lower = command.lowercased()
 
+        // Local matching first
         if lower.contains("captura") || lower.contains("screenshot") {
-            return GrokCommandResponse(action: .showScreenshots, message: "Mostrando capturas de pantalla")
+            return GrokCommandResponse(action: .showScreenshots, message: "Mostrando capturas")
         }
         if lower.contains("duplicado") || lower.contains("repetid") {
             return GrokCommandResponse(action: .showDuplicates, message: "Buscando duplicados")
@@ -50,29 +47,20 @@ actor GrokService {
             return GrokCommandResponse(action: .tagPhotos, message: "Clasificando fotos")
         }
 
-        // If API key configured, send to Grok
         guard isConfigured else {
-            return GrokCommandResponse(
-                action: .none,
-                message: "Configurá tu API key de Grok en Config.swift para usar comandos avanzados."
-            )
+            return GrokCommandResponse(action: .none, message: "API key no configurada.")
         }
 
-        let response = await sendToGrok(prompt: """
+        return await sendChat(prompt: """
             Sos el asistente de Fotify, una app de gestión de fotos para iOS.
             El usuario tiene \(await photoLibrary.photoCount) fotos y \(await photoLibrary.screenshotCount) capturas.
-
             Respondé en español, breve (max 2 oraciones).
-            Si el usuario pide una acción, respondé con el JSON:
+            Si el usuario pide una acción, respondé con JSON:
             {"action": "screenshots|duplicates|photos|tags", "message": "tu respuesta"}
-
-            Si es solo una pregunta, respondé con:
+            Si es solo pregunta:
             {"action": "none", "message": "tu respuesta"}
-
             Usuario: \(command)
         """)
-
-        return response
     }
 
     // MARK: - Image Classification
@@ -83,16 +71,16 @@ actor GrokService {
         let base64 = imageData.base64EncodedString()
 
         let requestBody: [String: Any] = [
-            "model": "grok-2-vision-latest",
+            "model": "llama-3.2-90b-vision-preview",
             "messages": [
                 [
                     "role": "system",
                     "content": """
-                        You are a photo classifier. Analyze the image and return ONLY a JSON array of tags in Spanish.
+                        You are a photo classifier. Return ONLY a JSON array of tags in Spanish.
                         Categories: paisaje, retrato, selfie, comida, mascota, documento, meme,
                         captura_pantalla, naturaleza, ciudad, playa, montaña, familia, amigos, deporte,
                         arte, texto, recibo, noche, atardecer, interior, exterior, vehiculo, celebracion.
-                        Return 3-7 relevant tags. Example: ["paisaje", "naturaleza", "montaña"]
+                        Return 3-7 tags. Example: ["paisaje", "naturaleza", "montaña"]
                     """
                 ],
                 [
@@ -116,11 +104,11 @@ actor GrokService {
         return await sendImageRequest(requestBody) ?? []
     }
 
-    // MARK: - Private HTTP
+    // MARK: - HTTP
 
-    private func sendToGrok(prompt: String) async -> GrokCommandResponse {
+    private func sendChat(prompt: String) async -> GrokCommandResponse {
         let requestBody: [String: Any] = [
-            "model": "grok-2-latest",
+            "model": model,
             "messages": [
                 ["role": "user", "content": prompt]
             ],
@@ -147,7 +135,7 @@ actor GrokService {
                 return parseCommandResponse(content)
             }
         } catch {
-            return GrokCommandResponse(action: .none, message: "Error de conexión: \(error.localizedDescription)")
+            return GrokCommandResponse(action: .none, message: "Error: \(error.localizedDescription)")
         }
 
         return GrokCommandResponse(action: .none, message: "Sin respuesta")
@@ -171,7 +159,7 @@ actor GrokService {
                 return parseTags(from: content)
             }
         } catch {
-            print("Grok API error: \(error)")
+            print("Groq API error: \(error)")
         }
         return nil
     }
@@ -181,7 +169,6 @@ actor GrokService {
     private func parseCommandResponse(_ content: String) -> GrokCommandResponse {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Try JSON parse
         if let data = trimmed.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
            let actionStr = json["action"],
@@ -196,7 +183,6 @@ actor GrokService {
             return GrokCommandResponse(action: action, message: message)
         }
 
-        // Try to find JSON in response
         if let start = trimmed.firstIndex(of: "{"),
            let end = trimmed.lastIndex(of: "}") {
             let jsonString = String(trimmed[start...end])
