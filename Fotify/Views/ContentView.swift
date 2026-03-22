@@ -260,12 +260,15 @@ struct ContentView: View {
         let response = await GrokService.shared.processCommand(command, photoLibrary: photoLibrary)
 
         // Handle Grok's response
-        if response.action == .showScreenshots {
+        switch response.action {
+        case .showScreenshots, .showDuplicates:
             withAnimation { selectedModule = .cleanup }
-        } else if response.action == .showDuplicates {
-            withAnimation { selectedModule = .cleanup }
-        } else if response.action == .showPhotos {
+        case .showPhotos:
             withAnimation { selectedModule = .photos }
+        case .tagPhotos:
+            withAnimation { selectedModule = .dashboard }
+        case .chat, .none:
+            break
         }
 
         isProcessingCommand = false
