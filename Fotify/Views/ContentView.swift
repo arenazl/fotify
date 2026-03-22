@@ -208,6 +208,8 @@ struct SearchTab: View {
     @State private var assets: [PHAsset] = []
     @State private var isSearching = false
     @State private var aiMessage: String = ""
+    @State private var debugTags: [String] = []
+    @State private var debugMatchedTags: [[String]] = []
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
@@ -282,17 +284,28 @@ struct SearchTab: View {
                         }
                         Spacer()
                     } else {
-                        HStack {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("\(assets.count) resultados")
                                 .font(.caption2).foregroundStyle(.secondary)
-                            Spacer()
+                            if !debugTags.isEmpty {
+                                Text("Tags buscados: \(debugTags.joined(separator: ", "))")
+                                    .font(.caption2).foregroundStyle(.purple)
+                            }
                         }
                         .padding(.horizontal, 20)
 
                         ScrollView(showsIndicators: false) {
                             LazyVGrid(columns: columns, spacing: 2) {
                                 ForEach(0..<assets.count, id: \.self) { index in
-                                    CategoryPhotoCell(asset: assets[index])
+                                    VStack(spacing: 2) {
+                                        CategoryPhotoCell(asset: assets[index])
+                                        if index < debugMatchedTags.count {
+                                            Text(debugMatchedTags[index].prefix(4).joined(separator: ", "))
+                                                .font(.system(size: 8))
+                                                .foregroundStyle(.yellow)
+                                                .lineLimit(1)
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 2)
@@ -311,6 +324,8 @@ struct SearchTab: View {
         guard !searchText.isEmpty else { return }
         isSearching = true
         aiMessage = ""
+        debugTags = []
+        debugMatchedTags = []
 
         let availableTags = tagsVM.availableTags
         let response = await GrokService.shared.processCommand(
@@ -321,12 +336,18 @@ struct SearchTab: View {
 
         withAnimation { aiMessage = response.message }
 
+        let searchTags: [String]
         switch response.action {
         case .searchByTags(let tags):
-            assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
+            searchTags = tags
         default:
-            assets = tagsVM.search(tags: [searchText], photoLibrary: photoLibrary)
+            searchTags = [searchText]
         }
+
+        debugTags = searchTags
+        let result = tagsVM.searchWithDebug(tags: searchTags, photoLibrary: photoLibrary)
+        assets = result.assets
+        debugMatchedTags = result.matchedTags
 
         isSearching = false
     }

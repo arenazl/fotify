@@ -156,28 +156,36 @@ class TagsViewModel: ObservableObject {
 
     /// Search photos by natural language query (matched against Vision tags)
     func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        guard let allPhotos = photoLibrary.allPhotos else { return [] }
+        return searchWithDebug(tags: searchTags, photoLibrary: photoLibrary).assets
+    }
+
+    /// Search with debug info — returns matched assets and their tags
+    func searchWithDebug(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> (assets: [PHAsset], matchedTags: [[String]]) {
+        guard let allPhotos = photoLibrary.allPhotos else { return ([], []) }
 
         let lowered = searchTags.map { $0.lowercased() }
         var results: [PHAsset] = []
+        var matchedTags: [[String]] = []
 
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             guard let assetTags = tagIndex[asset.localIdentifier] else { continue }
 
+            // Strict match: tag must equal search tag exactly
             let match = assetTags.contains { tag in
                 lowered.contains { searchTag in
-                    tag.contains(searchTag) || searchTag.contains(tag)
+                    tag == searchTag
                 }
             }
 
             if match {
                 results.append(asset)
+                matchedTags.append(assetTags)
                 if results.count >= 200 { break }
             }
         }
 
-        return results
+        return (results, matchedTags)
     }
 
     /// Get photos matching a category (documents or landscapes)
