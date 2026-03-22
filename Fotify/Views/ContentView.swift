@@ -19,8 +19,6 @@ enum FotifyTheme {
     static let cardRadius: CGFloat = 40
 }
 
-// MARK: - Glass Card Modifier
-
 struct GlassCard: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -46,21 +44,7 @@ extension View {
 
 struct ContentView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
-    @State private var neuralPulse: CGFloat = 1.0
-    @State private var selectedModule: AppModule = .dashboard
-    @State private var selectedCategory: PhotoCategory?
-    @State private var cleanupTab: CleanupView.CleanupTab = .screenshots
-    @State private var aiCommand: String = ""
-    @State private var isProcessingCommand = false
-    @State private var aiMessage: String = ""
-    @State private var searchResultTags: [String] = []
     @StateObject private var tagsVM = TagsViewModel()
-
-    enum AppModule: Int, CaseIterable {
-        case dashboard = 0
-        case photos = 1
-        case cleanup = 2
-    }
 
     var body: some View {
         Group {
@@ -68,7 +52,7 @@ struct ContentView: View {
             case .notDetermined:
                 PermissionRequestView()
             case .authorized, .limited:
-                mainAppView
+                mainTabView
             case .denied, .restricted:
                 PermissionDeniedView()
             @unknown default:
@@ -81,272 +65,270 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Main App
+    // MARK: - Tab View (iOS native bottom tabs)
 
-    private var mainAppView: some View {
-        ZStack {
-            FotifyTheme.meshGradient
-                .ignoresSafeArea()
-                .hueRotation(.degrees(neuralPulse * 10))
-
-            VStack(spacing: 0) {
-                headerView
-                    .padding(.top, 20)
-
-                Spacer()
-
-                // Dynamic Module
-                ZStack {
-                    if let category = selectedCategory {
-                        CategoryDetailView(category: category, onBack: {
-                            withAnimation(.spring(duration: 0.4)) {
-                                selectedCategory = nil
-                            }
-                        }, tagsVM: tagsVM)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .trailing).combined(with: .opacity),
-                            removal: .move(edge: .trailing).combined(with: .opacity)
-                        ))
-                    } else {
-                        switch selectedModule {
-                        case .dashboard:
-                            NeuralDashboard { category in
-                                handleCategoryTap(category)
-                            }
-                            .transition(.asymmetric(
-                                insertion: .scale.combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                        case .photos:
-                            PhotoMeshView()
-                                .transition(.asymmetric(
-                                    insertion: .scale.combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-                        case .cleanup:
-                            CleanupView(selectedTab: $cleanupTab)
-                                .transition(.asymmetric(
-                                    insertion: .scale.combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-                        }
-                    }
+    private var mainTabView: some View {
+        TabView {
+            CortexTab(tagsVM: tagsVM)
+                .tabItem {
+                    Label("Cortex", systemImage: "brain")
                 }
-                .animation(.spring(duration: 0.5), value: selectedModule)
-                .animation(.spring(duration: 0.4), value: selectedCategory)
 
-                Spacer()
+            MeshTab()
+                .tabItem {
+                    Label("Mesh", systemImage: "photo.on.rectangle.angled")
+                }
 
-                neuralOrbView
-            }
+            PurgeTab()
+                .tabItem {
+                    Label("Purge", systemImage: "flame")
+                }
+
+            SearchTab(tagsVM: tagsVM)
+                .tabItem {
+                    Label("Buscar", systemImage: "sparkle.magnifyingglass")
+                }
         }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            }
-        )
-        .onAppear {
-            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
-                neuralPulse = 1.5
-            }
-        }
+        .tint(.purple)
         .task {
-            // Load persisted tags, then continue scanning in background
             tagsVM.loadPersistedTags()
             await tagsVM.backgroundScan(photoLibrary: photoLibrary)
         }
     }
+}
 
-    // MARK: - Header
+// MARK: - Cortex Tab (Dashboard + Categories)
 
-    private var headerView: some View {
+struct CortexTab: View {
+    @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @ObservedObject var tagsVM: TagsViewModel
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                FotifyTheme.meshGradient
+                    .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        // Header
+                        cortexHeader
+
+                        // Categories grid
+                        NeuralDashboard { category in }
+
+                        // Scan status
+                        if case .scanning(let progress) = tagsVM.state {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.purple).scaleEffect(0.8)
+                                Text("Indexando fotos... \(Int(progress * 100))%")
+                                    .font(.caption2)
+                                    .foregroundStyle(.purple)
+                            }
+                            .padding(.bottom, 10)
+                        }
+                    }
+                    .padding(.top, 10)
+                }
+            }
+            .navigationTitle("FOTIFY")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .navigationDestination(for: PhotoCategory.self) { category in
+                CategoryDetailView(category: category, tagsVM: tagsVM)
+            }
+        }
+    }
+
+    private var cortexHeader: some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text("FOTIFY")
-                    .font(.system(size: 12, weight: .black))
-                    .kerning(4)
-                    .foregroundColor(Color.blue.opacity(0.8))
+            VStack(alignment: .leading, spacing: 2) {
                 Text("Cortex v.32")
-                    .font(.system(size: 32, weight: .thin))
+                    .font(.system(size: 28, weight: .thin))
                     .foregroundColor(.white)
             }
             Spacer()
-
-            // Real stats
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(.green).frame(width: 6, height: 6)
                     Text("\(photoLibrary.photoCount) fotos")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(.orange)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(.orange).frame(width: 6, height: 6)
                     Text("\(photoLibrary.screenshotCount) capturas")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-
-            Image(systemName: "sensor.tag.radiowaves.forward.fill")
-                .font(.title2)
-                .symbolEffect(.variableColor.iterative.reversing)
-                .padding(.leading, 12)
         }
-        .padding(.horizontal, 30)
+        .padding(.horizontal, 24)
     }
+}
 
-    // MARK: - Neural Orb (Grok Input)
+// MARK: - Mesh Tab (Photo Library)
 
-    private var neuralOrbView: some View {
-        VStack(spacing: 25) {
-            // Module selector pills
-            HStack(spacing: 12) {
-                ForEach(AppModule.allCases, id: \.rawValue) { module in
-                    Button {
-                        withAnimation(.spring(duration: 0.4)) {
-                            selectedCategory = nil
-                            selectedModule = module
+struct MeshTab: View {
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                FotifyTheme.meshGradient
+                    .ignoresSafeArea()
+                PhotoMeshView()
+            }
+            .navigationTitle("Biblioteca")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        }
+    }
+}
+
+// MARK: - Purge Tab (Cleanup)
+
+struct PurgeTab: View {
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                FotifyTheme.meshGradient
+                    .ignoresSafeArea()
+                CleanupView()
+            }
+            .navigationTitle("Limpieza")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        }
+    }
+}
+
+// MARK: - Search Tab (AI Search)
+
+struct SearchTab: View {
+    @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @ObservedObject var tagsVM: TagsViewModel
+    @State private var searchText: String = ""
+    @State private var assets: [PHAsset] = []
+    @State private var isSearching = false
+    @State private var aiMessage: String = ""
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                FotifyTheme.meshGradient
+                    .ignoresSafeArea()
+
+                VStack(spacing: 16) {
+                    // Search bar
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkle.magnifyingglass")
+                            .foregroundStyle(.purple)
+                        TextField("Buscá: perro, playa, comida...", text: $searchText)
+                            .onSubmit { Task { await performSearch() } }
+                        if isSearching {
+                            ProgressView().tint(.purple).scaleEffect(0.8)
                         }
-                    } label: {
-                        Text(moduleName(module))
-                            .font(.system(size: 11, weight: .bold))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(selectedModule == module ? .white.opacity(0.15) : .clear)
-                            .clipShape(Capsule())
-                            .foregroundStyle(selectedModule == module ? .white : .secondary)
                     }
-                }
-            }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 20)
 
-            // Grok command input
-            HStack {
-                TextField("Buscá o pedí algo...", text: $aiCommand)
-                    .padding(.horizontal, 25)
-                    .frame(height: 60)
-                    .background(.ultraThinMaterial.opacity(0.5))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 0.5))
-                    .onSubmit {
-                        Task { await processGrokCommand() }
+                    // Status
+                    if case .scanning(let progress) = tagsVM.state {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.purple).scaleEffect(0.7)
+                            Text("Escaneando... \(Int(progress * 100))%")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    } else if tagsVM.scannedCount > 0 {
+                        Text("\(tagsVM.scannedCount) fotos indexadas")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
 
-                Button(action: { Task { await processGrokCommand() } }) {
-                    ZStack {
-                        Circle()
-                            .fill(.linearGradient(
-                                colors: [.blue, .purple],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                            .frame(width: 60, height: 60)
-                            .shadow(color: .purple.opacity(0.5), radius: 20)
+                    if !aiMessage.isEmpty {
+                        Text(aiMessage)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .padding(.horizontal, 20)
+                    }
 
-                        if isProcessingCommand {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Image(systemName: "sparkles")
-                                .font(.title2)
-                                .foregroundColor(.white)
+                    // Results
+                    if assets.isEmpty && searchText.isEmpty {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: "sparkle.magnifyingglass")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.purple.opacity(0.5))
+                            Text("Escribí qué querés buscar")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text("Usa lenguaje natural: \"fotos de comida\", \"playa\", \"mi perro\"")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary.opacity(0.7))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                        }
+                        Spacer()
+                    } else if assets.isEmpty && !searchText.isEmpty && !isSearching {
+                        Spacer()
+                        VStack(spacing: 12) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.secondary)
+                            Text("Sin resultados para \"\(searchText)\"")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    } else {
+                        HStack {
+                            Text("\(assets.count) resultados")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+
+                        ScrollView(showsIndicators: false) {
+                            LazyVGrid(columns: columns, spacing: 2) {
+                                ForEach(0..<assets.count, id: \.self) { index in
+                                    CategoryPhotoCell(asset: assets[index])
+                                }
+                            }
+                            .padding(.horizontal, 2)
                         }
                     }
                 }
-                .disabled(aiCommand.isEmpty || isProcessingCommand)
+                .padding(.top, 10)
             }
-            .padding(.horizontal, 30)
-
-            // AI message
-            if !aiMessage.isEmpty {
-                Text(aiMessage)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.horizontal, 30)
-                    .transition(.opacity)
-            }
-
-            // Scan status
-            if case .scanning(let progress) = tagsVM.state {
-                HStack(spacing: 8) {
-                    ProgressView().tint(.purple).scaleEffect(0.8)
-                    Text("Indexando fotos... \(Int(progress * 100))%")
-                        .font(.caption2)
-                        .foregroundStyle(.purple)
-                }
-            }
-
-            // Pulse indicator
-            Circle()
-                .fill(.blue)
-                .frame(width: 4, height: 4)
-                .shadow(color: .blue, radius: 10)
-                .scaleEffect(neuralPulse)
-                .padding(.bottom, 20)
+            .navigationTitle("Buscar IA")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         }
     }
 
-    // MARK: - Helpers
-
-    private func moduleName(_ module: AppModule) -> String {
-        switch module {
-        case .dashboard: "CORTEX"
-        case .photos: "MESH"
-        case .cleanup: "PURGE"
-        }
-    }
-
-    private func handleCategoryTap(_ category: PhotoCategory) {
-        withAnimation(.spring(duration: 0.4)) {
-            switch category {
-            case .screenshots:
-                cleanupTab = .screenshots
-                selectedModule = .cleanup
-            case .duplicates:
-                cleanupTab = .duplicates
-                selectedModule = .cleanup
-            default:
-                selectedCategory = category
-            }
-        }
-    }
-
-    private func processGrokCommand() async {
-        guard !aiCommand.isEmpty else { return }
-        isProcessingCommand = true
-        let command = aiCommand
-        aiCommand = ""
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    private func performSearch() async {
+        guard !searchText.isEmpty else { return }
+        isSearching = true
+        aiMessage = ""
 
         let availableTags = tagsVM.availableTags
-
-        if availableTags.isEmpty {
-            withAnimation { aiMessage = "Escaneando fotos... esperá un momento" }
-            isProcessingCommand = false
-            return
-        }
-
-        let response = await GrokService.shared.processCommand(command, photoLibrary: photoLibrary, availableTags: availableTags)
+        let response = await GrokService.shared.processCommand(
+            searchText,
+            photoLibrary: photoLibrary,
+            availableTags: availableTags
+        )
 
         withAnimation { aiMessage = response.message }
 
         switch response.action {
-        case .showScreenshots, .showDuplicates:
-            withAnimation { selectedModule = .cleanup }
-        case .showPhotos:
-            withAnimation { selectedModule = .photos }
-        case .searchByTags:
-            // Open AI Search with query
-            withAnimation { selectedCategory = .aiSearch }
-        case .tagPhotos, .chat, .none:
-            break
+        case .searchByTags(let tags):
+            assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
+        default:
+            assets = tagsVM.search(tags: [searchText], photoLibrary: photoLibrary)
         }
 
-        isProcessingCommand = false
+        isSearching = false
     }
 }
 

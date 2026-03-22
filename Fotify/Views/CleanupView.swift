@@ -4,13 +4,15 @@ import Photos
 struct CleanupView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @StateObject private var duplicatesVM = DuplicatesViewModel()
-    @Binding var selectedTab: CleanupTab
+    @State var selectedTab: CleanupTab = .screenshots
     @State private var vaporizeProgress: CGFloat = 0.0
+
+    var initialTab: CleanupTab?
     @State private var selectedScreenshots: Set<Int> = []
     @State private var showDeleteConfirmation = false
     @State private var isVaporizing = false
 
-    enum CleanupTab {
+    enum CleanupTab: Hashable {
         case screenshots, duplicates
     }
 
@@ -101,6 +103,11 @@ struct CleanupView: View {
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text("iOS te pedirá confirmación. No se puede deshacer.")
+        }
+        .onAppear {
+            if let initialTab {
+                selectedTab = initialTab
+            }
         }
     }
 

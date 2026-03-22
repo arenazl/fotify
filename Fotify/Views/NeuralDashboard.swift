@@ -8,15 +8,9 @@ struct NeuralDashboard: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 24) {
-                // Categories grid
-                categoriesGrid
-
-                // Timeline preview
-                timelinePreview
-            }
-            .padding(.top, 10)
+        VStack(spacing: 24) {
+            categoriesGrid
+            timelinePreview
         }
     }
 
@@ -32,14 +26,15 @@ struct NeuralDashboard: View {
 
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(PhotoCategory.allCases) { category in
-                    CategoryCard(
-                        icon: category.icon,
-                        label: category.label,
-                        count: photoLibrary.count(for: category),
-                        color: category.color
-                    ) {
-                        onCategorySelected(category)
+                    NavigationLink(value: category) {
+                        CategoryCardView(
+                            icon: category.icon,
+                            label: category.label,
+                            count: photoLibrary.count(for: category),
+                            color: category.color
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 20)
@@ -51,25 +46,17 @@ struct NeuralDashboard: View {
     private var timelinePreview: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("TIMELINE")
+                Text("RECIENTES")
                     .font(.caption2.bold())
                     .kerning(2)
                     .foregroundStyle(.blue)
                 Spacer()
-                Text("Ver todo →")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 24)
 
             if let photos = photoLibrary.allPhotos, photos.count > 0 {
-                // Today
                 timelineSection(title: "Hoy", assets: recentPhotos(from: photos, daysAgo: 0))
-
-                // Yesterday
                 timelineSection(title: "Ayer", assets: recentPhotos(from: photos, daysAgo: 1))
-
-                // This week
                 timelineSection(title: "Esta semana", assets: recentPhotos(from: photos, daysAgo: 7))
             }
         }
@@ -129,37 +116,32 @@ struct NeuralDashboard: View {
 
 // MARK: - Category Card
 
-struct CategoryCard: View {
+struct CategoryCardView: View {
     let icon: String
     let label: String
     let count: Int?
     let color: Color
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .foregroundStyle(color)
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(color)
 
-                Text(label)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
 
-                if let count, count > 0 {
-                    Text("\(count)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 90)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
         }
-        .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .frame(maxWidth: .infinity)
+        .frame(height: 90)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
 
