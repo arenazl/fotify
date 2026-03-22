@@ -86,35 +86,14 @@ class TagsViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Grok Vision API (cloud)
+    // MARK: - Search by tags
 
-    func classifyWithGrok(photoLibrary: PhotoLibraryService) async {
-        guard let allPhotos = photoLibrary.allPhotos else { return }
-
-        state = .classifying(0)
-        tagGroups = [:]
-        allTagged = []
-
-        let totalCount = min(allPhotos.count, 100) // Limit for API costs
-
-        for i in 0..<totalCount {
-            let asset = allPhotos.object(at: i)
-
-            if let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 512, height: 512)) {
-                let tags = await GrokService.shared.classifyImage(image)
-                let tagged = TaggedPhoto(
-                    asset: asset,
-                    tags: tags,
-                    confidence: Dictionary(uniqueKeysWithValues: tags.map { ($0, Float(1.0)) })
-                )
-                allTagged.append(tagged)
-
-                for tag in tagged.tags {
-                    tagGroups[tag, default: []].append(tagged)
-                }
+    func photosForTags(_ searchTags: [String]) -> [TaggedPhoto] {
+        let lowered = searchTags.map { $0.lowercased() }
+        return allTagged.filter { tagged in
+            tagged.tags.contains { tag in
+                lowered.contains(where: { tag.lowercased().contains($0) || $0.contains(tag.lowercased()) })
             }
-
-            state = .classifying(Double(i + 1) / Double(totalCount))
         }
 
         state = .done
