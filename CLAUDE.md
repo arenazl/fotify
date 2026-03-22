@@ -24,6 +24,9 @@ Su única acción es abrir AltStore y tocar "actualizar".
 - No pedir al usuario que haga nada técnico
 - No hablar de archivos, hablar de funcionalidades
 - No preguntar cosas que ya están en este documento
+- No pasar paths locales (c:\Code\...) — el usuario no los usa
+- No pasar URLs de AltStore source — ya la tiene configurada, no cambia
+- Cuando el build termina, solo decir "refrescá AltStore"
 
 ## Estructura del proyecto
 ```
