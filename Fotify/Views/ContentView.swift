@@ -136,7 +136,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .black))
                     .kerning(4)
                     .foregroundColor(Color.blue.opacity(0.8))
-                Text("Cortex v.26")
+                Text("Cortex v.27")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundColor(.white)
             }
