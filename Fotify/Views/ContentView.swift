@@ -148,7 +148,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .black))
                     .kerning(4)
                     .foregroundColor(Color.blue.opacity(0.8))
-                Text("Cortex v.29")
+                Text("Cortex v.30")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundColor(.white)
             }
@@ -290,11 +290,19 @@ struct ContentView: View {
 
         // If no tags yet, classify first
         if tagsVM.tagGroups.isEmpty {
-            withAnimation { aiMessage = "Clasificando fotos primero..." }
+            withAnimation { aiMessage = "⏳ Clasificando tus fotos... esto tarda unos segundos" }
             await tagsVM.classifyPhotos(photoLibrary: photoLibrary)
+            withAnimation { aiMessage = "✓ \(tagsVM.tagGroups.count) categorías encontradas. Buscando..." }
         }
 
         let availableTags = Array(tagsVM.tagGroups.keys)
+
+        if availableTags.isEmpty {
+            withAnimation { aiMessage = "No se pudieron clasificar las fotos. Intentá de nuevo." }
+            isProcessingCommand = false
+            return
+        }
+
         let response = await GrokService.shared.processCommand(command, photoLibrary: photoLibrary, availableTags: availableTags)
 
         withAnimation { aiMessage = response.message }
