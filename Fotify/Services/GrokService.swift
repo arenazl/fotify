@@ -86,8 +86,8 @@ actor GrokService {
         let response = await sendChat(prompt: prompt)
 
         switch response.action {
-        case .searchByTags(let tags):
-            await DebugLogger.shared.log("GROQ", "Action: search, tags: \(tags)")
+        case .searchByFilters(let filters):
+            await DebugLogger.shared.log("GROQ", "Action: search, filters: \(filters.map { "\($0.field):\($0.values.prefix(3))" })")
         case .searchByLocation(let place):
             await DebugLogger.shared.log("GROQ", "Action: location, lugar: \(place)")
         case .createAlbum(let name, let tags):
