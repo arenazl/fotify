@@ -32,8 +32,18 @@ class TagsViewModel: ObservableObject {
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
 
+    private let currentSchemaVersion = 2 // bump this to force reindex
+
     func loadPersistedTags() {
-        guard let data = keychainRead() ,
+        let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
+        if savedVersion < currentSchemaVersion {
+            // Schema changed, wipe old data and reindex
+            keychainWrite(Data())
+            UserDefaults.standard.set(currentSchemaVersion, forKey: "fotify_schema_version")
+            return
+        }
+
+        guard let data = keychainRead(),
               let entries = try? JSONDecoder().decode([PhotoDescription].self, from: data) else {
             return
         }
