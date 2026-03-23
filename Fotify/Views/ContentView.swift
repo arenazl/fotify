@@ -208,8 +208,7 @@ struct SearchTab: View {
     @State private var assets: [PHAsset] = []
     @State private var isSearching = false
     @State private var aiMessage: String = ""
-    @State private var debugTags: [String] = []
-    @State private var debugMatchedTags: [[String]] = []
+    @State private var selectedSearchIndex: Int?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
@@ -335,28 +334,15 @@ struct SearchTab: View {
                         }
                         Spacer()
                     } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(assets.count) resultados")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            if !debugTags.isEmpty {
-                                Text("Tags buscados: \(debugTags.joined(separator: ", "))")
-                                    .font(.caption2).foregroundStyle(.purple)
-                            }
-                        }
-                        .padding(.horizontal, 20)
+                        Text("\(assets.count) resultados")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .padding(.horizontal, 20)
 
                         ScrollView(showsIndicators: false) {
-                            LazyVGrid(columns: columns, spacing: 2) {
+                            LazyVGrid(columns: columns, spacing: 1) {
                                 ForEach(0..<assets.count, id: \.self) { index in
-                                    VStack(spacing: 2) {
-                                        PhotoGridCell(asset: assets[index])
-                                        if index < debugMatchedTags.count {
-                                            Text(debugMatchedTags[index].prefix(4).joined(separator: ", "))
-                                                .font(.system(size: 8))
-                                                .foregroundStyle(.yellow)
-                                                .lineLimit(1)
-                                        }
-                                    }
+                                    PhotoGridCell(asset: assets[index])
+                                        .onTapGesture { selectedSearchIndex = index }
                                 }
                             }
                             .padding(.horizontal, 2)
@@ -368,6 +354,14 @@ struct SearchTab: View {
             .navigationTitle("Buscar IA")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .fullScreenCover(item: $selectedSearchIndex) { index in
+                PhotoViewer(
+                    initialIndex: index,
+                    fetchResult: nil,
+                    assets: assets
+                )
+                .environmentObject(photoLibrary)
+            }
         }
     }
 
@@ -375,8 +369,6 @@ struct SearchTab: View {
         guard !searchText.isEmpty else { return }
         isSearching = true
         aiMessage = ""
-        debugTags = []
-        debugMatchedTags = []
 
         let availableTags = tagsVM.availableTags
         let response = await GrokService.shared.processCommand(
@@ -393,10 +385,7 @@ struct SearchTab: View {
             searchTags = tags
         case .createAlbum(let albumName, let tags):
             searchTags = tags
-            debugTags = tags
-            let result = tagsVM.searchWithDebug(tags: tags, photoLibrary: photoLibrary)
-            assets = result.assets
-            debugMatchedTags = result.matchedTags
+            assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
             // Create the album
             if !assets.isEmpty {
                 try? await photoLibrary.createAlbum(name: albumName, assets: assets)
@@ -408,10 +397,7 @@ struct SearchTab: View {
             searchTags = [searchText]
         }
 
-        debugTags = searchTags
-        let result = tagsVM.searchWithDebug(tags: searchTags, photoLibrary: photoLibrary)
-        assets = result.assets
-        debugMatchedTags = result.matchedTags
+        assets = tagsVM.search(tags: searchTags, photoLibrary: photoLibrary)
 
         isSearching = false
     }
