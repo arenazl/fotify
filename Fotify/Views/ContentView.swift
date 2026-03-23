@@ -88,6 +88,11 @@ struct ContentView: View {
                 .tabItem {
                     Label("Buscar", systemImage: "sparkle.magnifyingglass")
                 }
+
+            SettingsTab(tagsVM: tagsVM)
+                .tabItem {
+                    Label("Ajustes", systemImage: "gearshape")
+                }
         }
         .tint(.purple)
         .task {
@@ -395,6 +400,203 @@ struct SearchTab: View {
         }
 
         isSearching = false
+    }
+}
+
+// MARK: - Settings Tab
+
+struct SettingsTab: View {
+    @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @ObservedObject var tagsVM: TagsViewModel
+
+    private var indexProgress: Double {
+        guard tagsVM.totalCount > 0 else { return 0 }
+        return Double(tagsVM.scannedCount) / Double(tagsVM.totalCount)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                FotifyTheme.meshGradient
+                    .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+
+                        // Indexing status card
+                        VStack(spacing: 16) {
+                            HStack {
+                                Image(systemName: "brain")
+                                    .font(.title2)
+                                    .foregroundStyle(.purple)
+                                Text("Indexación IA")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                                statusBadge
+                            }
+
+                            // Progress bar
+                            VStack(alignment: .leading, spacing: 8) {
+                                ProgressView(value: indexProgress)
+                                    .tint(.purple)
+
+                                HStack {
+                                    Text("\(tagsVM.scannedCount) / \(tagsVM.totalCount) fotos")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(Int(indexProgress * 100))%")
+                                        .font(.caption.bold()).foregroundStyle(.purple)
+                                }
+                            }
+
+                            // Stats grid
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                statCard(label: "Indexadas", value: "\(tagsVM.scannedCount)", icon: "checkmark.circle", color: .green)
+                                statCard(label: "Pendientes", value: "\(max(0, tagsVM.totalCount - tagsVM.scannedCount))", icon: "clock", color: .orange)
+                                statCard(label: "Total fotos", value: "\(photoLibrary.photoCount)", icon: "photo", color: .blue)
+                                statCard(label: "Modelo IA", value: "Llama 4 Scout", icon: "sparkles", color: .purple)
+                            }
+                        }
+                        .padding(20)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .padding(.horizontal, 16)
+
+                        // Library stats card
+                        VStack(spacing: 16) {
+                            HStack {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.title2)
+                                    .foregroundStyle(.blue)
+                                Text("Biblioteca")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                            }
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                statCard(label: "Fotos", value: "\(photoLibrary.photoCount)", icon: "photo", color: .blue)
+                                statCard(label: "Capturas", value: "\(photoLibrary.screenshotCount)", icon: "rectangle.dashed", color: .orange)
+                                statCard(label: "Videos", value: "\(photoLibrary.videosCount)", icon: "video", color: .cyan)
+                                statCard(label: "Favoritos", value: "\(photoLibrary.favoritesCount)", icon: "heart.fill", color: .red)
+                                statCard(label: "Selfies", value: "\(photoLibrary.selfiesCount)", icon: "person.crop.square", color: .indigo)
+                                statCard(label: "Live Photos", value: "\(photoLibrary.livePhotosCount)", icon: "camera.viewfinder", color: .mint)
+                            }
+                        }
+                        .padding(20)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .padding(.horizontal, 16)
+
+                        // Recent descriptions
+                        if !tagsVM.recentDescriptions.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Image(systemName: "text.bubble")
+                                        .font(.title2)
+                                        .foregroundStyle(.green)
+                                    Text("Últimas descripciones")
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                }
+
+                                ForEach(0..<tagsVM.recentDescriptions.count, id: \.self) { i in
+                                    let (desc, thumb) = tagsVM.recentDescriptions[i]
+                                    HStack(spacing: 12) {
+                                        if let img = thumb {
+                                            Image(uiImage: img)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 50, height: 50)
+                                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        }
+                                        Text(desc)
+                                            .font(.caption)
+                                            .foregroundStyle(.white.opacity(0.8))
+                                            .lineLimit(3)
+                                        Spacer()
+                                    }
+                                }
+                            }
+                            .padding(20)
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                            .padding(.horizontal, 16)
+                        }
+
+                        // App info
+                        VStack(spacing: 8) {
+                            Text("Fotify v1.6")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("IA: Llama 4 Scout via Groq")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 10)
+                        .padding(.bottom, 30)
+                    }
+                    .padding(.top, 10)
+                }
+            }
+            .navigationTitle("Ajustes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        }
+    }
+
+    private var statusBadge: some View {
+        Group {
+            if case .scanning = tagsVM.state {
+                HStack(spacing: 4) {
+                    ProgressView().tint(.purple).scaleEffect(0.6)
+                    Text("Indexando")
+                        .font(.caption2.bold())
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(.purple.opacity(0.2))
+                .clipShape(Capsule())
+                .foregroundStyle(.purple)
+            } else if tagsVM.scannedCount >= tagsVM.totalCount && tagsVM.totalCount > 0 {
+                Text("Completo")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.green.opacity(0.2))
+                    .clipShape(Capsule())
+                    .foregroundStyle(.green)
+            } else if tagsVM.scannedCount > 0 {
+                Text("Parcial")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.orange.opacity(0.2))
+                    .clipShape(Capsule())
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func statCard(label: String, value: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundStyle(color)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.white)
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .background(.white.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
