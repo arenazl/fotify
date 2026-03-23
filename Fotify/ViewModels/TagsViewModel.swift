@@ -112,7 +112,7 @@ class TagsViewModel: ObservableObject {
         let alreadyScanned = scannedCount
         let needsQuickPhase = alreadyScanned < quickScanLimit && toScan.count > 0
 
-        state = .scanning(Double(scannedCount) / Double(min(totalCount, quickScanLimit)))
+        state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
 
         // Process in batches
         for batchStart in stride(from: 0, to: toScan.count, by: batchSize) {
@@ -169,7 +169,7 @@ class TagsViewModel: ObservableObject {
 
             // Update progress
             if state != .ready {
-                state = .scanning(Double(scannedCount) / Double(min(totalCount, quickScanLimit)))
+                state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
             }
 
             persistDescriptions()
