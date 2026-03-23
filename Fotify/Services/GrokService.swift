@@ -8,9 +8,9 @@ struct GrokCommandResponse {
         case showDuplicates
         case showPhotos
         case tagPhotos
-        case searchByTags([String])
-        case searchByLocation(String) // place name
-        case createAlbum(String, [String]) // album name, search tags
+        case searchByFilters([SearchFilter])
+        case searchByLocation(String)
+        case createAlbum(String, [SearchFilter])
         case chat(String)
         case none
     }
@@ -47,29 +47,37 @@ actor GrokService {
             return GrokCommandResponse(action: .none, message: "API key no configurada.")
         }
 
-        // Send to Groq — extract search keywords from user command
+        // Send to Groq — structured search
         let prompt = """
-        Sos el asistente de Fotify, una app de fotos para iOS.
-        El usuario es de ARGENTINA. Siempre priorizá ubicaciones argentinas.
-        El usuario tiene \(await photoLibrary.photoCount) fotos indexadas con descripciones en español.
+        Sos el motor de búsqueda de Fotify. Las fotos están indexadas con campos: personas, lugar, objetos, escena, actividad, texto.
+        El usuario es de ARGENTINA. Priorizá ubicaciones argentinas.
 
         El usuario dice: "\(command)"
 
         Respondé SOLO con este JSON (sin markdown, sin ```):
-        {"action": "search", "tags": ["palabra1", "palabra2"], "message": "tu respuesta corta en español"}
+        {"action": "search", "filters": [{"field": "campo", "values": ["valor1", "valor2"]}], "message": "respuesta"}
 
-        Extraé las palabras clave en español para buscar en las descripciones de fotos.
-        Por ejemplo: "fotos de mendoza con roberto" → tags: ["mendoza", "roberto"]
-        "mi perro en la playa" → tags: ["perro", "playa"]
-        "comida japonesa" → tags: ["comida", "japonesa", "sushi"]
+        Reglas de filters:
+        - field: personas, lugar, objetos, escena, actividad, texto
+        - Si busca personas, usá field "personas" con values ["not_empty"]
+        - values es un ARRAY con la palabra + sinónimos + variantes sin tildes + gerundios + plurales
+          Ejemplo: noche → values: ["noche", "nocturno", "oscuro", "nocturna"]
+          Ejemplo: montaña → values: ["montaña", "montana", "monte", "sierra", "cerro"]
+          Ejemplo: jugar → values: ["jugando", "juego", "jugar"]
+          Ejemplo: niños → values: ["niño", "nino", "niña", "nina", "chico", "nene"]
+        - Priorizá: escena > objetos > lugar > actividad
+        - Para búsquedas simples, usá UN solo filtro
+          "comida" → UN filtro en objetos: ["comida", "plato", "platos", "alimento"]
+          "capturas" → UN filtro en escena: ["captura", "screenshot", "pantalla"]
 
-        Si pide crear una carpeta/álbum, usá action "create_album" y en tags poné las palabras de búsqueda.
-        Si busca por ubicación/lugar/ciudad/país, usá action "location" y en tags poné el nombre COMPLETO del lugar con provincia y Argentina.
-        Ejemplo: "fotos en Padua" → {"action": "location", "tags": ["Padua, Buenos Aires, Argentina"], "message": "Buscando fotos en Padua"}
-        Ejemplo: "fotos en Mendoza" → {"action": "location", "tags": ["Mendoza, Argentina"], "message": "Buscando fotos en Mendoza"}
-        Si pide ver capturas, usá action "screenshots".
-        Si pide duplicados, usá action "duplicates".
-        Si es una pregunta general, usá action "chat".
+        Reglas de action:
+        - "search": buscar en los campos indexados (lo más común)
+        - "location": si busca por ciudad/lugar/país. En filters poné [{"field":"lugar","values":["nombre completo con provincia y Argentina"]}]
+          "fotos en Padua" → action "location", filters: [{"field":"lugar","values":["Padua, Buenos Aires, Argentina"]}]
+        - "create_album": si pide crear carpeta/álbum. Mismo formato de filters.
+        - "screenshots": si pide capturas de pantalla
+        - "duplicates": si pide duplicados
+        - "chat": si es pregunta general
         """
 
         await DebugLogger.shared.log("GROQ", "Query: \"\(command)\"")
@@ -138,6 +146,24 @@ actor GrokService {
         return GrokCommandResponse(action: .none, message: "Sin respuesta")
     }
 
+    // MARK: - Filter Parsing
+
+    private func parseFilters(from json: [String: Any]) -> [SearchFilter] {
+        guard let filtersArray = json["filters"] as? [[String: Any]] else {
+            // Fallback: try old "tags" format
+            if let tags = json["tags"] as? [String] {
+                return tags.map { SearchFilter(field: "escena", values: [$0]) }
+            }
+            return []
+        }
+
+        return filtersArray.compactMap { filterDict in
+            guard let field = filterDict["field"] as? String,
+                  let values = filterDict["values"] as? [String] else { return nil }
+            return SearchFilter(field: field, values: values)
+        }
+    }
+
     // MARK: - Parsing
 
     private func parseCommandResponse(_ content: String) -> GrokCommandResponse {
@@ -157,20 +183,17 @@ actor GrokService {
             return GrokCommandResponse(action: .chat(trimmed), message: trimmed)
         }
 
+        // Parse filters array
+        let filters = parseFilters(from: json)
+
         switch actionStr {
         case "search":
-            let tags = json["tags"] as? [String] ?? []
-            return GrokCommandResponse(action: .searchByTags(tags), message: message)
-        case "classify":
-            return GrokCommandResponse(action: .tagPhotos, message: message)
+            return GrokCommandResponse(action: .searchByFilters(filters), message: message)
         case "location":
-            let tags = json["tags"] as? [String] ?? []
-            let place = tags.first ?? ""
+            let place = filters.first?.values.first ?? ""
             return GrokCommandResponse(action: .searchByLocation(place), message: message)
         case "create_album":
-            let tags = json["tags"] as? [String] ?? []
-            let albumName = json["album_name"] as? String ?? message
-            return GrokCommandResponse(action: .createAlbum(albumName, tags), message: message)
+            return GrokCommandResponse(action: .createAlbum(message, filters), message: message)
         case "screenshots":
             return GrokCommandResponse(action: .showScreenshots, message: message)
         case "duplicates":

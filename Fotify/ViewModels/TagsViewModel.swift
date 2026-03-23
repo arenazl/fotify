@@ -2,14 +2,54 @@ import SwiftUI
 import Photos
 import CoreLocation
 
-// MARK: - Persisted description data
+// MARK: - Structured photo description
 
-struct PhotoDescription: Codable {
-    let assetId: String
-    let description: String
+struct PhotoFields: Codable {
+    let personas: String
+    let lugar: String
+    let objetos: String
+    let escena: String
+    let actividad: String
+    let texto: String
+
+    /// Check if any field matches the given values
+    func matchesField(_ field: String, values: [String]) -> Bool {
+        let fieldValue: String
+        switch field {
+        case "personas": fieldValue = personas
+        case "lugar": fieldValue = lugar
+        case "objetos": fieldValue = objetos
+        case "escena": fieldValue = escena
+        case "actividad": fieldValue = actividad
+        case "texto": fieldValue = texto
+        default: return false
+        }
+        let lower = fieldValue.lowercased()
+        if values.contains("not_empty") { return !lower.isEmpty }
+        return values.contains { lower.contains($0.lowercased()) }
+    }
 }
 
-// MARK: - Tags ViewModel (Llama 4 Scout indexing + semantic search)
+struct IndexedPhoto: Codable {
+    let assetId: String
+    let fields: PhotoFields
+    let date: String?
+    let gps: String? // "lat,lng"
+}
+
+// MARK: - Search filter (from Groq)
+
+struct SearchFilter: Codable {
+    let field: String
+    let values: [String]
+}
+
+struct SearchResponse: Codable {
+    let filters: [SearchFilter]
+    let message: String
+}
+
+// MARK: - Tags ViewModel
 
 @MainActor
 class TagsViewModel: ObservableObject {
@@ -24,13 +64,13 @@ class TagsViewModel: ObservableObject {
     @Published var totalCount: Int = 0
     @Published var recentDescriptions: [(String, UIImage?)] = []
 
-    private var descriptionIndex: [String: String] = [:]
+    private var photoIndex: [String: IndexedPhoto] = [:]
 
     // MARK: - Persistence (Keychain)
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 4 // fix: never describe what's NOT in the photo
+    private let currentSchemaVersion = 5 // structured fields
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
@@ -41,20 +81,18 @@ class TagsViewModel: ObservableObject {
         }
 
         guard let data = keychainRead(),
-              let entries = try? JSONDecoder().decode([PhotoDescription].self, from: data) else {
+              let entries = try? JSONDecoder().decode([IndexedPhoto].self, from: data) else {
             return
         }
         for entry in entries {
-            descriptionIndex[entry.assetId] = entry.description
+            photoIndex[entry.assetId] = entry
         }
-        scannedCount = descriptionIndex.count
-        if scannedCount > 0 {
-            state = .ready
-        }
+        scannedCount = photoIndex.count
+        if scannedCount > 0 { state = .ready }
     }
 
-    private func persistDescriptions() {
-        let entries = descriptionIndex.map { PhotoDescription(assetId: $0.key, description: $0.value) }
+    private func persistIndex() {
+        let entries = Array(photoIndex.values)
         guard let data = try? JSONEncoder().encode(entries) else { return }
         keychainWrite(data)
     }
@@ -66,7 +104,6 @@ class TagsViewModel: ObservableObject {
             kSecAttrAccount as String: keychainAccount
         ]
         SecItemDelete(query as CFDictionary)
-
         var addQuery = query
         addQuery[kSecValueData as String] = data
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
@@ -88,7 +125,7 @@ class TagsViewModel: ObservableObject {
         return nil
     }
 
-    // MARK: - Background Scan with Llama 4 Scout
+    // MARK: - Background Scan
 
     func backgroundScan(photoLibrary: PhotoLibraryService) async {
         guard let allPhotos = photoLibrary.allPhotos else { return }
@@ -100,22 +137,18 @@ class TagsViewModel: ObservableObject {
         let scanMax = Config.debugMode ? Config.quickScanLimit : allPhotos.count
         for i in 0..<min(allPhotos.count, scanMax) {
             let asset = allPhotos.object(at: i)
-            if descriptionIndex[asset.localIdentifier] == nil {
+            if photoIndex[asset.localIdentifier] == nil {
                 toScan.append(asset)
             }
         }
 
-        if toScan.isEmpty {
-            state = .ready
-            return
-        }
+        if toScan.isEmpty { state = .ready; return }
 
         let quickScanLimit = Config.quickScanLimit
         let needsQuickPhase = scannedCount < quickScanLimit
 
         state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
 
-        // Shared date formatter (created once)
         let dateFmt = DateFormatter()
         dateFmt.locale = Locale(identifier: "es_AR")
         dateFmt.dateFormat = "d MMMM yyyy"
@@ -126,98 +159,98 @@ class TagsViewModel: ObservableObject {
             let batchEnd = min(batchStart + batchSize, toScan.count)
             let batch = Array(toScan[batchStart..<batchEnd])
 
-            await withTaskGroup(of: (String, String?, UIImage?).self) { group in
+            await withTaskGroup(of: (String, IndexedPhoto?, UIImage?).self) { group in
                 for asset in batch {
                     let dateStr = asset.creationDate.map { dateFmt.string(from: $0) }
                     let lat = asset.location?.coordinate.latitude
                     let lng = asset.location?.coordinate.longitude
+                    let gpsStr = (lat != nil && lng != nil) ? "\(String(format: "%.4f", lat!)),\(String(format: "%.4f", lng!))" : nil
 
                     group.addTask {
                         guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 150, height: 150)),
                               let jpegData = image.jpegData(compressionQuality: 0.3) else {
-                            await DebugLogger.shared.log("INDEX", "ERROR: no se pudo obtener thumbnail para \(asset.localIdentifier.prefix(8))")
+                            await DebugLogger.shared.log("INDEX", "ERROR: sin thumbnail")
                             return (asset.localIdentifier, nil, nil)
                         }
 
                         let base64 = jpegData.base64EncodedString()
-                        await DebugLogger.shared.log("INDEX", "Enviando foto a Llama 4 Scout (\(base64.count / 1024)KB base64)")
-                        var aiDesc = await self.describeWithLlama(base64Image: base64) ?? ""
-                        await DebugLogger.shared.log("INDEX", "IA dice: \(aiDesc.prefix(80))...")
+                        let fields = await self.analyzeWithLlama(base64Image: base64)
 
-                        var meta: [String] = []
-                        if let d = dateStr { meta.append("Fecha: \(d)") }
-                        if let la = lat, let ln = lng {
-                            meta.append("GPS: \(String(format: "%.4f", la)),\(String(format: "%.4f", ln))")
-                            await DebugLogger.shared.log("INDEX", "GPS: \(String(format: "%.4f", la)),\(String(format: "%.4f", ln))")
+                        if let f = fields {
+                            let summary = "[\(f.escena)] \(f.objetos.prefix(30))"
+                            await DebugLogger.shared.log("INDEX", "OK: \(summary)")
+                            if gpsStr != nil { await DebugLogger.shared.log("INDEX", "GPS: \(gpsStr!)") }
+
+                            let indexed = IndexedPhoto(assetId: asset.localIdentifier, fields: f, date: dateStr, gps: gpsStr)
+                            return (asset.localIdentifier, indexed, image)
                         } else {
-                            await DebugLogger.shared.log("INDEX", "Sin GPS")
+                            await DebugLogger.shared.log("INDEX", "ERROR: IA no respondió")
+                            return (asset.localIdentifier, nil, nil)
                         }
-                        if !meta.isEmpty {
-                            aiDesc += ". " + meta.joined(separator: ". ")
-                        }
-
-                        await DebugLogger.shared.log("INDEX", "GUARDADO: \(aiDesc.prefix(100))")
-                        return (asset.localIdentifier, aiDesc.isEmpty ? nil : aiDesc, image)
                     }
                 }
 
-                for await (assetId, description, thumb) in group {
-                    if let desc = description {
-                        descriptionIndex[assetId] = desc
+                for await (_, indexed, thumb) in group {
+                    if let idx = indexed {
+                        photoIndex[idx.assetId] = idx
                         scannedCount += 1
-                        if recentDescriptions.count < 10 {
-                            recentDescriptions.insert((desc, thumb), at: 0)
-                        } else {
-                            recentDescriptions[recentDescriptions.count - 1] = (desc, thumb)
-                            recentDescriptions.insert(recentDescriptions.removeLast(), at: 0)
-                        }
-                        if recentDescriptions.count > 10 {
-                            recentDescriptions.removeLast()
-                        }
+                        let desc = "[\(idx.fields.escena)] \(idx.fields.objetos.prefix(40))"
+                        if recentDescriptions.count >= 10 { recentDescriptions.removeLast() }
+                        recentDescriptions.insert((desc, thumb), at: 0)
                     }
                 }
             }
 
-            // After quick phase, mark as ready
             if needsQuickPhase && scannedCount >= quickScanLimit && state != .ready {
                 state = .ready
-                persistDescriptions()
+                persistIndex()
             }
 
             if state != .ready {
                 state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
             }
 
-            // Persist every 5 batches (~100 photos)
             batchesSinceLastPersist += 1
             if batchesSinceLastPersist >= 5 {
-                persistDescriptions()
+                persistIndex()
                 batchesSinceLastPersist = 0
             }
         }
 
-        persistDescriptions()
+        persistIndex()
         state = .ready
     }
 
-    // MARK: - Llama 4 Scout API
+    // MARK: - Llama 4 Scout (structured output)
 
     private var retryCount = 0
 
-    private func describeWithLlama(base64Image: String) async -> String? {
+    private func analyzeWithLlama(base64Image: String) async -> PhotoFields? {
         let requestBody: [String: Any] = [
             "model": Config.groqVisionModel,
             "messages": [
                 [
                     "role": "user",
                     "content": [
-                        ["type": "text", "text": "Describí esta foto en una línea corta en español. SOLO describí lo que SÍ se ve. NUNCA digas lo que NO hay. Incluí: personas (si hay), lugar, objetos, escena. Si no hay personas, no las menciones. Solo la descripción, nada más."],
+                        ["type": "text", "text": """
+                            Analizá esta foto y respondé SOLO con este JSON (sin markdown, sin ```):
+                            {"personas":"","lugar":"","objetos":"","escena":"","actividad":"","texto":""}
+
+                            Reglas:
+                            - personas: quiénes se ven (hombre, mujer, niño, grupo, bebé). Vacío "" si no hay nadie.
+                            - lugar: tipo de lugar (interior/exterior, y tipo: casa, oficina, playa, calle, parque, restaurante, etc)
+                            - objetos: TODOS los objetos principales visibles (animales incluidos)
+                            - escena: tipo de escena en 2-3 palabras
+                            - actividad: qué está pasando
+                            - texto: texto visible en la foto (carteles, pantallas, etiquetas). Vacío "" si no hay.
+                            Solo lo que se ve. Campos vacíos "" si no aplica. Sé específico.
+                            """],
                         ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                     ]
                 ]
             ],
-            "max_tokens": 120,
-            "temperature": 0.3
+            "max_tokens": 200,
+            "temperature": 0.1
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody),
@@ -233,68 +266,80 @@ class TagsViewModel: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Rate limiting — wait and retry (max 3 times)
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
                 retryCount += 1
-                if retryCount > 3 {
-                    retryCount = 0
-                    return nil
-                }
+                if retryCount > 3 { retryCount = 0; return nil }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                let result = await describeWithLlama(base64Image: base64Image)
+                let result = await analyzeWithLlama(base64Image: base64Image)
                 retryCount = 0
                 return result
             }
-
             retryCount = 0
 
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let choices = json["choices"] as? [[String: Any]],
                let message = choices.first?["message"] as? [String: Any],
                let content = message["content"] as? String {
-                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Parse the structured JSON
+                let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let jsonStart = cleaned.firstIndex(of: "{"),
+                   let jsonEnd = cleaned.lastIndex(of: "}") {
+                    let jsonStr = String(cleaned[jsonStart...jsonEnd])
+                    if let fieldsData = jsonStr.data(using: .utf8),
+                       let fields = try? JSONDecoder().decode(PhotoFields.self, from: fieldsData) {
+                        return fields
+                    }
+                }
             }
         } catch {
             return nil
         }
-
         return nil
     }
 
-    // MARK: - Search
+    // MARK: - Search (structured filters)
 
-    func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
+    func searchWithFilters(_ filters: [SearchFilter], photoLibrary: PhotoLibraryService) -> [PHAsset] {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
-
-        let lowered = searchTags.map { $0.lowercased() }
-        Task { @MainActor in
-            DebugLogger.shared.log("SEARCH", "Buscando tags: \(lowered.joined(separator: ", "))")
-            DebugLogger.shared.log("SEARCH", "Descripciones indexadas: \(descriptionIndex.count)")
-        }
 
         var results: [PHAsset] = []
 
+        Task { @MainActor in
+            DebugLogger.shared.log("SEARCH", "Filters: \(filters.map { "\($0.field):\($0.values.joined(separator: "|"))" }.joined(separator: " + "))")
+            DebugLogger.shared.log("SEARCH", "Index size: \(photoIndex.count)")
+        }
+
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
-            guard let description = descriptionIndex[asset.localIdentifier] else { continue }
+            guard let indexed = photoIndex[asset.localIdentifier] else { continue }
 
-            let descLower = description.lowercased()
-            if lowered.contains(where: { descLower.contains($0) }) {
+            let match = filters.allSatisfy { filter in
+                indexed.fields.matchesField(filter.field, values: filter.values)
+            }
+
+            if match {
                 results.append(asset)
                 Task { @MainActor in
-                    DebugLogger.shared.log("SEARCH", "MATCH: \(description.prefix(80))")
+                    DebugLogger.shared.log("SEARCH", "MATCH: [\(indexed.fields.escena)] \(indexed.fields.objetos.prefix(40))")
                 }
                 if results.count >= 200 { break }
             }
         }
 
         Task { @MainActor in
-            DebugLogger.shared.log("SEARCH", "Total resultados: \(results.count)")
+            DebugLogger.shared.log("SEARCH", "Total: \(results.count) resultados")
         }
+
         return results
     }
 
-    /// Search by location: geocode once, find nearby GPS photos
+    /// Legacy text search (fallback)
+    func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
+        let filters = searchTags.map { SearchFilter(field: "escena", values: [$0]) }
+        return searchWithFilters(filters, photoLibrary: photoLibrary)
+    }
+
+    /// Search by GPS location
     func searchByLocation(place: String, photoLibrary: PhotoLibraryService) async -> [PHAsset] {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
@@ -307,7 +352,7 @@ class TagsViewModel: ObservableObject {
         }
 
         guard let target = targetLocation else {
-            DebugLogger.shared.log("GPS", "ERROR: no se pudo geocodificar \"\(place)\"")
+            DebugLogger.shared.log("GPS", "ERROR: no se pudo geocodificar")
             return []
         }
 
@@ -319,67 +364,36 @@ class TagsViewModel: ObservableObject {
             let asset = allPhotos.object(at: i)
             guard let assetLoc = asset.location else { continue }
             photosWithGPS += 1
-            let dist = assetLoc.distance(from: target)
-            if dist < 5000 {
+            if assetLoc.distance(from: target) < 5000 {
                 results.append(asset)
-                DebugLogger.shared.log("GPS", "MATCH: foto a \(Int(dist))m del objetivo")
                 if results.count >= 200 { break }
             }
         }
 
-        DebugLogger.shared.log("GPS", "Fotos con GPS: \(photosWithGPS), matches: \(results.count)")
+        DebugLogger.shared.log("GPS", "Con GPS: \(photosWithGPS), matches: \(results.count)")
         return results
     }
 
-    /// Get photos matching a category (documents or landscapes)
+    /// Category-based search
     func photosForCategory(_ category: PhotoCategory, photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        guard let allPhotos = photoLibrary.allPhotos else { return [] }
-
-        let keywords: [String]
+        let filters: [SearchFilter]
         switch category {
         case .documents:
-            keywords = ["documento", "papel", "texto", "libro", "recibo", "carta", "nota", "pantalla", "captura"]
+            filters = [SearchFilter(field: "escena", values: ["documento", "captura", "pantalla", "texto", "papel", "libro", "recibo", "nota"])]
         case .landscapes:
-            keywords = ["paisaje", "montaña", "playa", "lago", "río", "campo", "bosque", "atardecer", "amanecer", "cielo", "naturaleza", "mar"]
+            filters = [SearchFilter(field: "escena", values: ["paisaje", "natural", "montaña", "montana", "playa", "lago", "rio", "bosque", "atardecer", "amanecer"])]
         default:
             return []
         }
-
-        var results: [PHAsset] = []
-        for i in 0..<allPhotos.count {
-            let asset = allPhotos.object(at: i)
-            guard let description = descriptionIndex[asset.localIdentifier] else { continue }
-
-            let descLower = description.lowercased()
-            if keywords.contains(where: { descLower.contains($0) }) {
-                results.append(asset)
-                if results.count >= 300 { break }
-            }
-        }
-
-        return results
+        return searchWithFilters(filters, photoLibrary: photoLibrary)
     }
 
-    /// Get photos with people (from AI descriptions)
     func photosForPeople(photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        guard let allPhotos = photoLibrary.allPhotos else { return [] }
-        let keywords = ["persona", "hombre", "mujer", "niño", "niña", "gente", "grupo", "retrato", "rostro", "cara"]
-
-        var results: [PHAsset] = []
-        for i in 0..<allPhotos.count {
-            let asset = allPhotos.object(at: i)
-            guard let description = descriptionIndex[asset.localIdentifier] else { continue }
-
-            let descLower = description.lowercased()
-            if keywords.contains(where: { descLower.contains($0) }) {
-                results.append(asset)
-                if results.count >= 300 { break }
-            }
-        }
-        return results
+        let filters = [SearchFilter(field: "personas", values: ["not_empty"])]
+        return searchWithFilters(filters, photoLibrary: photoLibrary)
     }
 
     var availableTags: [String] {
-        Array(descriptionIndex.values.prefix(50))
+        Array(photoIndex.values.prefix(50).map { $0.fields.escena })
     }
 }
