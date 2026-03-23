@@ -3,10 +3,26 @@ import Photos
 
 // MARK: - Photo Category
 
+// MARK: - Custom Folder
+
+struct CustomFolder: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let searchTerms: [String]
+    let createdAt: Date
+
+    init(name: String, searchTerms: [String]) {
+        self.id = UUID().uuidString
+        self.name = name
+        self.searchTerms = searchTerms
+        self.createdAt = Date()
+    }
+}
+
 enum PhotoCategory: String, CaseIterable, Identifiable {
     case recents, places, people, screenshots, duplicates
     case favorites, videos, selfies, livePhotos
-    case documents, landscapes, aiSearch
+    case documents, landscapes
 
     var id: String { rawValue }
 
@@ -23,7 +39,6 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .livePhotos: "Live Photos"
         case .documents: "Documentos"
         case .landscapes: "Paisajes"
-        case .aiSearch: "Buscar IA"
         }
     }
 
@@ -40,7 +55,6 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .livePhotos: "camera.viewfinder"
         case .documents: "doc.text.viewfinder"
         case .landscapes: "mountain.2.fill"
-        case .aiSearch: "sparkle.magnifyingglass"
         }
     }
 
@@ -57,7 +71,6 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .livePhotos: .mint
         case .documents: .brown
         case .landscapes: .teal
-        case .aiSearch: .purple
         }
     }
 
@@ -190,7 +203,7 @@ class PhotoLibraryService: ObservableObject {
         case .selfies: return selfiesCount > 0 ? selfiesCount : nil
         case .livePhotos: return livePhotosCount > 0 ? livePhotosCount : nil
         case .people: return peopleCount > 0 ? peopleCount : nil
-        case .places, .documents, .landscapes, .duplicates, .aiSearch: return nil
+        case .places, .documents, .landscapes, .duplicates: return nil
         }
     }
 

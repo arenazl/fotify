@@ -45,6 +45,7 @@ extension View {
 struct ContentView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @StateObject private var tagsVM = TagsViewModel()
+    @StateObject private var folderManager = FolderManager()
 
     var body: some View {
         Group {
@@ -69,7 +70,7 @@ struct ContentView: View {
 
     private var mainTabView: some View {
         TabView {
-            CortexTab(tagsVM: tagsVM)
+            CortexTab(tagsVM: tagsVM, folderManager: folderManager)
                 .tabItem {
                     Label("Inicio", systemImage: "square.grid.2x2.fill")
                 }
@@ -82,11 +83,6 @@ struct ContentView: View {
             PurgeTab()
                 .tabItem {
                     Label("Limpieza", systemImage: "trash.circle")
-                }
-
-            SearchTab(tagsVM: tagsVM)
-                .tabItem {
-                    Label("Buscar", systemImage: "sparkle.magnifyingglass")
                 }
 
             SettingsTab(tagsVM: tagsVM)
@@ -107,6 +103,8 @@ struct ContentView: View {
 struct CortexTab: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @ObservedObject var tagsVM: TagsViewModel
+    @ObservedObject var folderManager: FolderManager
+    @State private var showCreateFolder = false
 
     var body: some View {
         NavigationStack {
@@ -116,13 +114,10 @@ struct CortexTab: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 24) {
-                        // Header
                         cortexHeader
 
-                        // Categories grid
-                        NeuralDashboard()
+                        NeuralDashboard(folderManager: folderManager, showCreateFolder: $showCreateFolder)
 
-                        // Scan status
                         if case .scanning(let progress) = tagsVM.state {
                             HStack(spacing: 8) {
                                 ProgressView().tint(.purple).scaleEffect(0.8)
@@ -141,6 +136,12 @@ struct CortexTab: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .navigationDestination(for: PhotoCategory.self) { category in
                 CategoryDetailView(category: category, tagsVM: tagsVM)
+            }
+            .navigationDestination(for: CustomFolder.self) { folder in
+                CustomFolderDetailView(folder: folder, tagsVM: tagsVM)
+            }
+            .sheet(isPresented: $showCreateFolder) {
+                CreateFolderView(tagsVM: tagsVM, folderManager: folderManager)
             }
         }
     }
@@ -206,200 +207,67 @@ struct PurgeTab: View {
 
 // MARK: - Search Tab (AI Search)
 
-struct SearchTab: View {
+// MARK: - Custom Folder Detail View
+
+struct CustomFolderDetailView: View {
+    let folder: CustomFolder
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @ObservedObject var tagsVM: TagsViewModel
-    @State private var searchText: String = ""
     @State private var assets: [PHAsset] = []
-    @State private var isSearching = false
-    @State private var aiMessage: String = ""
-    @State private var selectedSearchIndex: Int?
+    @State private var isLoading = true
+    @State private var selectedIndex: Int?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                FotifyTheme.meshGradient
-                    .ignoresSafeArea()
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                VStack(spacing: 16) {
-                    // Search bar
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkle.magnifyingglass")
-                            .foregroundStyle(.purple)
-                        TextField("Buscá: perro, playa, comida...", text: $searchText)
-                            .onSubmit { Task { await performSearch() } }
-                        if isSearching {
-                            ProgressView().tint(.purple).scaleEffect(0.8)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal, 20)
-
-                    // Status
-                    if case .scanning(let progress) = tagsVM.state {
-                        VStack(spacing: 4) {
-                            HStack(spacing: 8) {
-                                ProgressView().tint(.purple).scaleEffect(0.7)
-                                Text("Escaneando... \(Int(progress * 100))% (\(tagsVM.scannedCount)/\(tagsVM.totalCount))")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                            }
-                            Text("\(tagsVM.recentDescriptions.count) descripciones recientes")
-                                .font(.system(size: 9)).foregroundStyle(.purple.opacity(0.5))
-                        }
-                    } else if tagsVM.scannedCount > 0 {
-                        HStack(spacing: 6) {
-                            Text("\(tagsVM.scannedCount) fotos indexadas")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            if tagsVM.scannedCount < tagsVM.totalCount {
-                                Text("· indexando en background...")
-                                    .font(.caption2).foregroundStyle(.purple.opacity(0.6))
-                            }
-                        }
-                    }
-
-                    if !aiMessage.isEmpty {
-                        Text(aiMessage)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.8))
-                            .padding(.horizontal, 20)
-                    }
-
-                    // Results
-                    if assets.isEmpty && searchText.isEmpty {
-                        // Live indexing feed — always show when scanning
-                        if case .scanning = tagsVM.state {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("INDEXANDO EN VIVO")
-                                    .font(.caption2.bold())
-                                    .kerning(2)
-                                    .foregroundStyle(.purple)
-                                    .padding(.horizontal, 20)
-
-                                if tagsVM.recentDescriptions.isEmpty {
-                                    Text("Esperando primeras descripciones...")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 20)
-                                } else {
-                                    ScrollView(showsIndicators: false) {
-                                        VStack(spacing: 10) {
-                                            ForEach(0..<tagsVM.recentDescriptions.count, id: \.self) { i in
-                                                let (desc, thumb) = tagsVM.recentDescriptions[i]
-                                                HStack(spacing: 10) {
-                                                    if let img = thumb {
-                                                        Image(uiImage: img)
-                                                            .resizable()
-                                                            .scaledToFill()
-                                                            .frame(width: 50, height: 50)
-                                                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                                                    }
-                                                    Text(desc)
-                                                        .font(.caption)
-                                                        .foregroundStyle(.white.opacity(0.9))
-                                                        .lineLimit(3)
-                                                    Spacer()
-                                                }
-                                                .padding(.horizontal, 20)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Spacer()
-                            VStack(spacing: 12) {
-                                Image(systemName: "sparkle.magnifyingglass")
-                                    .font(.system(size: 48))
-                                    .foregroundStyle(.purple.opacity(0.5))
-                                Text("Escribí qué querés buscar")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Text("Usa lenguaje natural: \"fotos de comida\", \"playa\", \"mi perro\"")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary.opacity(0.7))
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                            }
-                            Spacer()
-                        }
-                    } else if assets.isEmpty && !searchText.isEmpty && !isSearching {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.secondary)
-                            Text("Sin resultados para \"\(searchText)\"")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    } else {
-                        Text("\(assets.count) resultados")
-                            .font(.caption2).foregroundStyle(.secondary)
-                            .padding(.horizontal, 20)
-
-                        ScrollView(showsIndicators: false) {
-                            LazyVGrid(columns: columns, spacing: 1) {
-                                ForEach(0..<assets.count, id: \.self) { index in
-                                    PhotoGridCell(asset: assets[index])
-                                        .onTapGesture { selectedSearchIndex = index }
-                                }
-                            }
-                            .padding(.horizontal, 2)
+            if isLoading {
+                ProgressView("Cargando...").tint(.white)
+            } else if assets.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("Sin fotos en esta carpeta")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 1) {
+                        ForEach(0..<assets.count, id: \.self) { index in
+                            PhotoGridCell(asset: assets[index])
+                                .onTapGesture { selectedIndex = index }
                         }
                     }
                 }
-                .padding(.top, 10)
             }
-            .navigationTitle("Buscar IA")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .fullScreenCover(item: $selectedSearchIndex) { index in
-                PhotoViewer(
-                    initialIndex: index,
-                    fetchResult: nil,
-                    assets: assets
-                )
+        }
+        .navigationTitle(folder.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.black.opacity(0.8), for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill")
+                        .font(.subheadline).foregroundStyle(.purple)
+                    Text(folder.name).font(.headline)
+                    if !assets.isEmpty {
+                        Text("\(assets.count)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .fullScreenCover(item: $selectedIndex) { index in
+            PhotoViewer(initialIndex: index, fetchResult: nil, assets: assets)
                 .environmentObject(photoLibrary)
-            }
         }
-    }
-
-    private func performSearch() async {
-        guard !searchText.isEmpty else { return }
-        isSearching = true
-        aiMessage = ""
-
-        let availableTags = tagsVM.availableTags
-        let response = await GrokService.shared.processCommand(
-            searchText,
-            photoLibrary: photoLibrary,
-            availableTags: availableTags
-        )
-
-        withAnimation { aiMessage = response.message }
-
-        switch response.action {
-        case .searchByTerms(let terms):
-            assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
-        case .searchByLocation(let place):
-            assets = await tagsVM.searchByLocation(place: place, photoLibrary: photoLibrary)
-        case .createAlbum(let albumName, let terms):
-            assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
-            if !assets.isEmpty {
-                try? await photoLibrary.createAlbum(name: albumName, assets: assets)
-                withAnimation { aiMessage = "Álbum \"\(albumName)\" creado con \(assets.count) fotos" }
-            }
-        default:
-            assets = tagsVM.searchByTerms([searchText.lowercased()], photoLibrary: photoLibrary)
+        .task {
+            assets = tagsVM.searchByTerms(folder.searchTerms, photoLibrary: photoLibrary)
+            isLoading = false
         }
-
-        isSearching = false
     }
 }
 

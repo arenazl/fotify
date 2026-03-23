@@ -3,6 +3,8 @@ import Photos
 
 struct NeuralDashboard: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @ObservedObject var folderManager: FolderManager
+    @Binding var showCreateFolder: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
@@ -24,6 +26,7 @@ struct NeuralDashboard: View {
                 .padding(.leading, 24)
 
             LazyVGrid(columns: columns, spacing: 14) {
+                // Fixed categories
                 ForEach(PhotoCategory.allCases) { category in
                     NavigationLink(value: category) {
                         CategoryCardView(
@@ -34,6 +37,48 @@ struct NeuralDashboard: View {
                         )
                     }
                     .buttonStyle(.plain)
+                }
+
+                // Custom folders
+                ForEach(folderManager.folders) { folder in
+                    NavigationLink(value: folder) {
+                        CategoryCardView(
+                            icon: "folder.fill",
+                            label: folder.name,
+                            count: nil,
+                            color: .purple
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            folderManager.removeFolder(id: folder.id)
+                        } label: {
+                            Label("Eliminar", systemImage: "trash")
+                        }
+                    }
+                }
+
+                // Add button (always last)
+                Button {
+                    showCreateFolder = true
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                            .foregroundStyle(.purple)
+                        Text("Agregar")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 90)
+                    .background(.purple.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(.purple.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                    )
                 }
             }
             .padding(.horizontal, 20)

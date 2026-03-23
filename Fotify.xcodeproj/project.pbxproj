@@ -20,6 +20,8 @@
 		A1000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000012; };
 		A1000013 /* CategoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014; };
 		A1000015 /* DebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
+		A1000016 /* FolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
+		A1000017 /* CreateFolderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +39,8 @@
 		A2000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000014 /* CategoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDetailView.swift; sourceTree = "<group>"; };
 		A2000015 /* DebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogger.swift; sourceTree = "<group>"; };
+		A2000016 /* FolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderManager.swift; sourceTree = "<group>"; };
+		A2000017 /* CreateFolderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateFolderView.swift; sourceTree = "<group>"; };
 		A3000001 /* Fotify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fotify.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -80,6 +84,7 @@
 				A2000004 /* PhotoMeshView.swift */,
 				A2000005 /* CleanupView.swift */,
 			A2000014 /* CategoryDetailView.swift */,
+			A2000017 /* CreateFolderView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -100,6 +105,7 @@
 				A2000008 /* GrokService.swift */,
 				A2000009 /* Config.swift */,
 				A2000015 /* DebugLogger.swift */,
+				A2000016 /* FolderManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -189,6 +195,8 @@
 				A1000011 /* TagsViewModel.swift in Sources */,
 				A1000013 /* CategoryDetailView.swift in Sources */,
 				A1000015 /* DebugLogger.swift in Sources */,
+				A1000016 /* FolderManager.swift in Sources */,
+				A1000017 /* CreateFolderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -290,7 +290,7 @@ struct CategoryDetailView: View {
             assets = found
             totalCount = found.count
 
-        case .duplicates, .aiSearch:
+        case .duplicates:
             break
         }
 
