@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import CoreLocation
 
 // MARK: - Persisted description data
 
@@ -127,8 +128,25 @@ class TagsViewModel: ObservableObject {
                         }
 
                         let base64 = jpegData.base64EncodedString()
-                        let description = await self.describeWithLlama(base64Image: base64)
-                        return (asset.localIdentifier, description, image)
+                        var aiDesc = await self.describeWithLlama(base64Image: base64) ?? ""
+
+                        // Append geo + date metadata
+                        var meta: [String] = []
+                        if let location = asset.location {
+                            let placeName = await self.reverseGeocode(location: location)
+                            if let place = placeName { meta.append("Ubicación: \(place)") }
+                        }
+                        if let date = asset.creationDate {
+                            let fmt = DateFormatter()
+                            fmt.locale = Locale(identifier: "es_AR")
+                            fmt.dateFormat = "d MMMM yyyy, HH:mm"
+                            meta.append("Fecha: \(fmt.string(from: date))")
+                        }
+                        if !meta.isEmpty {
+                            aiDesc += ". " + meta.joined(separator: ". ")
+                        }
+
+                        return (asset.localIdentifier, aiDesc.isEmpty ? nil : aiDesc, image)
                     }
                 }
 
@@ -209,6 +227,24 @@ class TagsViewModel: ObservableObject {
         }
 
         return nil
+    }
+
+    // MARK: - Reverse Geocoding
+
+    private func reverseGeocode(location: CLLocation) async -> String? {
+        await withCheckedContinuation { continuation in
+            CLGeocoder().reverseGeocodeLocation(location) { placemarks, _ in
+                guard let place = placemarks?.first else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                var parts: [String] = []
+                if let locality = place.locality { parts.append(locality) }
+                if let admin = place.administrativeArea, admin != place.locality { parts.append(admin) }
+                if let country = place.country { parts.append(country) }
+                continuation.resume(returning: parts.isEmpty ? nil : parts.joined(separator: ", "))
+            }
+        }
     }
 
     // MARK: - Search
