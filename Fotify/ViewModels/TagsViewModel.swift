@@ -101,7 +101,7 @@ class TagsViewModel: ObservableObject {
         guard let allPhotos = photoLibrary.allPhotos else { return }
 
         totalCount = allPhotos.count
-        let batchSize = 10
+        let batchSize = 20
 
         // Find photos that still need scanning
         var toScan: [PHAsset] = []
@@ -129,27 +129,29 @@ class TagsViewModel: ObservableObject {
             let batchEnd = min(batchStart + batchSize, toScan.count)
             let batch = Array(toScan[batchStart..<batchEnd])
 
+            let dateFmt = DateFormatter()
+            dateFmt.locale = Locale(identifier: "es_AR")
+            dateFmt.dateFormat = "d MMMM yyyy"
+
             await withTaskGroup(of: (String, String?, UIImage?).self) { group in
                 for asset in batch {
+                    let dateStr = asset.creationDate.map { dateFmt.string(from: $0) }
+                    let lat = asset.location?.coordinate.latitude
+                    let lng = asset.location?.coordinate.longitude
+
                     group.addTask {
-                        guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200)),
-                              let jpegData = image.jpegData(compressionQuality: 0.5) else {
+                        guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 150, height: 150)),
+                              let jpegData = image.jpegData(compressionQuality: 0.3) else {
                             return (asset.localIdentifier, nil, nil)
                         }
 
                         let base64 = jpegData.base64EncodedString()
                         var aiDesc = await self.describeWithLlama(base64Image: base64) ?? ""
 
-                        // Append date + raw GPS (no geocoding, resolved at search time)
                         var meta: [String] = []
-                        if let date = asset.creationDate {
-                            let fmt = DateFormatter()
-                            fmt.locale = Locale(identifier: "es_AR")
-                            fmt.dateFormat = "d MMMM yyyy"
-                            meta.append("Fecha: \(fmt.string(from: date))")
-                        }
-                        if let loc = asset.location {
-                            meta.append("GPS: \(String(format: "%.4f", loc.coordinate.latitude)),\(String(format: "%.4f", loc.coordinate.longitude))")
+                        if let d = dateStr { meta.append("Fecha: \(d)") }
+                        if let la = lat, let ln = lng {
+                            meta.append("GPS: \(String(format: "%.4f", la)),\(String(format: "%.4f", ln))")
                         }
                         if !meta.isEmpty {
                             aiDesc += ". " + meta.joined(separator: ". ")
@@ -182,8 +184,10 @@ class TagsViewModel: ObservableObject {
                 state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
             }
 
-            persistDescriptions()
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            // Persist every 100 photos (not every batch)
+            if scannedCount % 100 < batchSize {
+                persistDescriptions()
+            }
         }
 
         state = .ready
