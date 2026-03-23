@@ -143,15 +143,24 @@ struct CreateFolderView: View {
                                         .kerning(2)
                                         .foregroundStyle(.yellow)
                                     Spacer()
+                                    Button("Copiar") {
+                                        UIPasteboard.general.string = debugLog.joined(separator: "\n")
+                                    }
+                                    .font(.caption2).foregroundStyle(.blue)
                                     Button("Limpiar") { debugLog.removeAll() }
                                         .font(.caption2).foregroundStyle(.red)
                                 }
-                                ForEach(0..<debugLog.count, id: \.self) { i in
-                                    Text(debugLog[i])
-                                        .font(.system(size: 9, design: .monospaced))
-                                        .foregroundStyle(.white.opacity(0.7))
-                                        .lineLimit(5)
+                                ScrollView(showsIndicators: true) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        ForEach(0..<debugLog.count, id: \.self) { i in
+                                            Text(debugLog[i])
+                                                .font(.system(size: 9, design: .monospaced))
+                                                .foregroundStyle(.white.opacity(0.7))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
                                 }
+                                .frame(maxHeight: 300)
                             }
                             .padding(12)
                             .background(.black.opacity(0.6))
