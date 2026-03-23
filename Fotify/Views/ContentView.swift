@@ -408,6 +408,7 @@ struct SearchTab: View {
 struct SettingsTab: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @ObservedObject var tagsVM: TagsViewModel
+    @ObservedObject private var debugLog = DebugLogger.shared
 
     private var indexProgress: Double {
         guard tagsVM.totalCount > 0 else { return 0 }
@@ -526,12 +527,60 @@ struct SettingsTab: View {
                             .padding(.horizontal, 16)
                         }
 
+                        // Debug Console
+                        if Config.debugMode {
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Image(systemName: "terminal")
+                                        .font(.title2)
+                                        .foregroundStyle(.yellow)
+                                    Text("Consola Debug")
+                                        .font(.headline)
+                                        .foregroundStyle(.white)
+                                    Spacer()
+                                    Button("Limpiar") {
+                                        DebugLogger.shared.clear()
+                                    }
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.red)
+                                }
+
+                                if DebugLogger.shared.logs.isEmpty {
+                                    Text("Sin logs todavía...")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    ForEach(DebugLogger.shared.logs) { entry in
+                                        HStack(alignment: .top, spacing: 8) {
+                                            Text(entry.category)
+                                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                .foregroundStyle(logColor(entry.category))
+                                                .frame(width: 50, alignment: .leading)
+                                            Text(entry.message)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(.white.opacity(0.7))
+                                                .lineLimit(4)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(20)
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                            .padding(.horizontal, 16)
+                        }
+
                         // App info
                         VStack(spacing: 8) {
                             Text("Fotify v1.6")
                                 .font(.caption).foregroundStyle(.secondary)
                             Text("IA: Llama 4 Scout via Groq")
                                 .font(.caption2).foregroundStyle(.secondary)
+                            if Config.debugMode {
+                                Text("DEBUG MODE")
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(.yellow)
+                            }
                         }
                         .padding(.top, 10)
                         .padding(.bottom, 30)
@@ -575,6 +624,16 @@ struct SettingsTab: View {
                     .clipShape(Capsule())
                     .foregroundStyle(.orange)
             }
+        }
+    }
+
+    private func logColor(_ category: String) -> Color {
+        switch category {
+        case "INDEX": return .cyan
+        case "SEARCH": return .green
+        case "GROQ": return .purple
+        case "GPS": return .orange
+        default: return .white
         }
     }
 

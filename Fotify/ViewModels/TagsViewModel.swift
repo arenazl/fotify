@@ -30,7 +30,7 @@ class TagsViewModel: ObservableObject {
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 2
+    private let currentSchemaVersion = 3 // force reindex for debug
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
@@ -97,7 +97,8 @@ class TagsViewModel: ObservableObject {
         let batchSize = 20
 
         var toScan: [PHAsset] = []
-        for i in 0..<allPhotos.count {
+        let scanMax = Config.debugMode ? Config.quickScanLimit : allPhotos.count
+        for i in 0..<min(allPhotos.count, scanMax) {
             let asset = allPhotos.object(at: i)
             if descriptionIndex[asset.localIdentifier] == nil {
                 toScan.append(asset)
@@ -134,21 +135,28 @@ class TagsViewModel: ObservableObject {
                     group.addTask {
                         guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 150, height: 150)),
                               let jpegData = image.jpegData(compressionQuality: 0.3) else {
+                            await DebugLogger.shared.log("INDEX", "ERROR: no se pudo obtener thumbnail para \(asset.localIdentifier.prefix(8))")
                             return (asset.localIdentifier, nil, nil)
                         }
 
                         let base64 = jpegData.base64EncodedString()
+                        await DebugLogger.shared.log("INDEX", "Enviando foto a Llama 4 Scout (\(base64.count / 1024)KB base64)")
                         var aiDesc = await self.describeWithLlama(base64Image: base64) ?? ""
+                        await DebugLogger.shared.log("INDEX", "IA dice: \(aiDesc.prefix(80))...")
 
                         var meta: [String] = []
                         if let d = dateStr { meta.append("Fecha: \(d)") }
                         if let la = lat, let ln = lng {
                             meta.append("GPS: \(String(format: "%.4f", la)),\(String(format: "%.4f", ln))")
+                            await DebugLogger.shared.log("INDEX", "GPS: \(String(format: "%.4f", la)),\(String(format: "%.4f", ln))")
+                        } else {
+                            await DebugLogger.shared.log("INDEX", "Sin GPS")
                         }
                         if !meta.isEmpty {
                             aiDesc += ". " + meta.joined(separator: ". ")
                         }
 
+                        await DebugLogger.shared.log("INDEX", "GUARDADO: \(aiDesc.prefix(100))")
                         return (asset.localIdentifier, aiDesc.isEmpty ? nil : aiDesc, image)
                     }
                 }
@@ -259,6 +267,11 @@ class TagsViewModel: ObservableObject {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
         let lowered = searchTags.map { $0.lowercased() }
+        Task { @MainActor in
+            DebugLogger.shared.log("SEARCH", "Buscando tags: \(lowered.joined(separator: ", "))")
+            DebugLogger.shared.log("SEARCH", "Descripciones indexadas: \(descriptionIndex.count)")
+        }
+
         var results: [PHAsset] = []
 
         for i in 0..<allPhotos.count {
@@ -268,10 +281,16 @@ class TagsViewModel: ObservableObject {
             let descLower = description.lowercased()
             if lowered.contains(where: { descLower.contains($0) }) {
                 results.append(asset)
+                Task { @MainActor in
+                    DebugLogger.shared.log("SEARCH", "MATCH: \(description.prefix(80))")
+                }
                 if results.count >= 200 { break }
             }
         }
 
+        Task { @MainActor in
+            DebugLogger.shared.log("SEARCH", "Total resultados: \(results.count)")
+        }
         return results
     }
 
@@ -279,24 +298,36 @@ class TagsViewModel: ObservableObject {
     func searchByLocation(place: String, photoLibrary: PhotoLibraryService) async -> [PHAsset] {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
+        DebugLogger.shared.log("GPS", "Geocodificando: \"\(place)\"")
+
         let targetLocation: CLLocation? = await withCheckedContinuation { continuation in
             CLGeocoder().geocodeAddressString(place) { placemarks, _ in
                 continuation.resume(returning: placemarks?.first?.location)
             }
         }
 
-        guard let target = targetLocation else { return [] }
+        guard let target = targetLocation else {
+            DebugLogger.shared.log("GPS", "ERROR: no se pudo geocodificar \"\(place)\"")
+            return []
+        }
+
+        DebugLogger.shared.log("GPS", "Coordenadas: \(String(format: "%.4f", target.coordinate.latitude)), \(String(format: "%.4f", target.coordinate.longitude))")
 
         var results: [PHAsset] = []
+        var photosWithGPS = 0
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             guard let assetLoc = asset.location else { continue }
-            if assetLoc.distance(from: target) < 5000 {
+            photosWithGPS += 1
+            let dist = assetLoc.distance(from: target)
+            if dist < 5000 {
                 results.append(asset)
+                DebugLogger.shared.log("GPS", "MATCH: foto a \(Int(dist))m del objetivo")
                 if results.count >= 200 { break }
             }
         }
 
+        DebugLogger.shared.log("GPS", "Fotos con GPS: \(photosWithGPS), matches: \(results.count)")
         return results
     }
 

@@ -70,7 +70,27 @@ actor GrokService {
         Si es una pregunta general, usá action "chat".
         """
 
+        await DebugLogger.shared.log("GROQ", "Query: \"\(command)\"")
+        await DebugLogger.shared.log("GROQ", "Prompt enviado a Groq...")
+
         let response = await sendChat(prompt: prompt)
+
+        switch response.action {
+        case .searchByTags(let tags):
+            await DebugLogger.shared.log("GROQ", "Action: search, tags: \(tags)")
+        case .searchByLocation(let place):
+            await DebugLogger.shared.log("GROQ", "Action: location, lugar: \(place)")
+        case .createAlbum(let name, let tags):
+            await DebugLogger.shared.log("GROQ", "Action: create_album, nombre: \(name), tags: \(tags)")
+        case .showScreenshots:
+            await DebugLogger.shared.log("GROQ", "Action: screenshots")
+        case .showDuplicates:
+            await DebugLogger.shared.log("GROQ", "Action: duplicates")
+        case .chat(let msg):
+            await DebugLogger.shared.log("GROQ", "Action: chat, msg: \(msg)")
+        default:
+            await DebugLogger.shared.log("GROQ", "Action: \(response.message)")
+        }
 
         return response
     }
