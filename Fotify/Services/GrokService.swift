@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 
 // MARK: - Response Model
 
@@ -92,7 +91,10 @@ actor GrokService {
             return GrokCommandResponse(action: .none, message: "Error interno")
         }
 
-        var request = URLRequest(url: URL(string: baseURL)!)
+        guard let url = URL(string: baseURL) else {
+            return GrokCommandResponse(action: .none, message: "Error interno")
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")

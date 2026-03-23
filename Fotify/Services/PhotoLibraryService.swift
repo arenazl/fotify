@@ -82,7 +82,6 @@ class PhotoLibraryService: ObservableObject {
     @Published var videos: PHFetchResult<PHAsset>?
     @Published var selfies: PHFetchResult<PHAsset>?
     @Published var livePhotos: PHFetchResult<PHAsset>?
-    @Published var people: PHFetchResult<PHAsset>?
     @Published var photoCount: Int = 0
     @Published var recentsCount: Int = 0
     @Published var screenshotCount: Int = 0
@@ -173,24 +172,9 @@ class PhotoLibraryService: ObservableObject {
         livePhotos = PHAsset.fetchAssets(with: .image, options: liveOptions)
         livePhotosCount = livePhotos?.count ?? 0
 
-        // People — fetch all person smart albums and collect their assets
-        var allPeopleAssets: [PHAsset] = []
-        let personCollections = PHAssetCollection.fetchAssetCollections(
-            with: .smartAlbum, subtype: .smartAlbumAllHidden, options: nil
-        )
-        // Try fetching from Faces/People albums
-        let faceCollections = PHCollectionList.fetchTopLevelUserCollections(with: nil)
-        for i in 0..<faceCollections.count {
-            if let collection = faceCollections.object(at: i) as? PHAssetCollection,
-               collection.localizedTitle?.lowercased().contains("people") == true ||
-               collection.localizedTitle?.lowercased().contains("personas") == true {
-                let assets = PHAsset.fetchAssets(in: collection, options: nil)
-                for j in 0..<min(assets.count, 300) {
-                    allPeopleAssets.append(assets.object(at: j))
-                }
-            }
-        }
-        peopleCount = allPeopleAssets.count
+        // People — not available as smart album in PhotoKit
+        // Will be populated by AI descriptions (search "persona" in descriptions)
+        peopleCount = 0
 
         isLoading = false
     }

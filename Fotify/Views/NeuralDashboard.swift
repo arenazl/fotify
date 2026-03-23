@@ -3,7 +3,6 @@ import Photos
 
 struct NeuralDashboard: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
-    let onCategorySelected: (PhotoCategory) -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 

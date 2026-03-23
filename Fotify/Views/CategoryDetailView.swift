@@ -260,8 +260,9 @@ struct CategoryDetailView: View {
             groups[key]?.indices.append(i)
         }
 
-        return order.map { key in
-            PhotoGroup(title: key.capitalized, assets: groups[key]!.assets, globalIndices: groups[key]!.indices)
+        return order.compactMap { key in
+            guard let group = groups[key] else { return nil }
+            return PhotoGroup(title: key.capitalized, assets: group.assets, globalIndices: group.indices)
         }
     }
 
@@ -280,9 +281,9 @@ struct CategoryDetailView: View {
             totalCount = filtered.count
 
         case .people:
-            let fetch = photoLibrary.fetchResult(for: .selfies)
-            fetchResult = fetch
-            totalCount = fetch?.count ?? 0
+            let found = tagsVM.photosForPeople(photoLibrary: photoLibrary)
+            assets = found
+            totalCount = found.count
 
         case .documents, .landscapes:
             let found = tagsVM.photosForCategory(category, photoLibrary: photoLibrary)

@@ -22,22 +22,19 @@ class TagsViewModel: ObservableObject {
     @Published var state: State = .idle
     @Published var scannedCount: Int = 0
     @Published var totalCount: Int = 0
-    @Published var recentDescriptions: [(String, UIImage?)] = [] // last descriptions with thumbnails
+    @Published var recentDescriptions: [(String, UIImage?)] = []
 
-    /// In-memory index: assetId → description
     private var descriptionIndex: [String: String] = [:]
 
-    // MARK: - Persistence
+    // MARK: - Persistence (Keychain)
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-
-    private let currentSchemaVersion = 2 // bump this to force reindex
+    private let currentSchemaVersion = 2
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
         if savedVersion < currentSchemaVersion {
-            // Schema changed, wipe old data and reindex
             keychainWrite(Data())
             UserDefaults.standard.set(currentSchemaVersion, forKey: "fotify_schema_version")
             return
@@ -58,12 +55,9 @@ class TagsViewModel: ObservableObject {
 
     private func persistDescriptions() {
         let entries = descriptionIndex.map { PhotoDescription(assetId: $0.key, description: $0.value) }
-        if let data = try? JSONEncoder().encode(entries) {
-            keychainWrite(data)
-        }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        keychainWrite(data)
     }
-
-    // MARK: - Keychain (survives app reinstall)
 
     private func keychainWrite(_ data: Data) {
         let query: [String: Any] = [
@@ -88,8 +82,7 @@ class TagsViewModel: ObservableObject {
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecSuccess {
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess {
             return result as? Data
         }
         return nil
@@ -103,7 +96,6 @@ class TagsViewModel: ObservableObject {
         totalCount = allPhotos.count
         let batchSize = 20
 
-        // Find photos that still need scanning
         var toScan: [PHAsset] = []
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
@@ -117,21 +109,21 @@ class TagsViewModel: ObservableObject {
             return
         }
 
-        // Phase 1: quick scan first batch, then mark as ready
         let quickScanLimit = Config.quickScanLimit
-        let alreadyScanned = scannedCount
-        let needsQuickPhase = alreadyScanned < quickScanLimit && toScan.count > 0
+        let needsQuickPhase = scannedCount < quickScanLimit
 
         state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
 
-        // Process in batches
+        // Shared date formatter (created once)
+        let dateFmt = DateFormatter()
+        dateFmt.locale = Locale(identifier: "es_AR")
+        dateFmt.dateFormat = "d MMMM yyyy"
+
+        var batchesSinceLastPersist = 0
+
         for batchStart in stride(from: 0, to: toScan.count, by: batchSize) {
             let batchEnd = min(batchStart + batchSize, toScan.count)
             let batch = Array(toScan[batchStart..<batchEnd])
-
-            let dateFmt = DateFormatter()
-            dateFmt.locale = Locale(identifier: "es_AR")
-            dateFmt.dateFormat = "d MMMM yyyy"
 
             await withTaskGroup(of: (String, String?, UIImage?).self) { group in
                 for asset in batch {
@@ -164,8 +156,13 @@ class TagsViewModel: ObservableObject {
                 for await (assetId, description, thumb) in group {
                     if let desc = description {
                         descriptionIndex[assetId] = desc
-                        scannedCount = descriptionIndex.count
-                        recentDescriptions.insert((desc, thumb), at: 0)
+                        scannedCount += 1
+                        if recentDescriptions.count < 10 {
+                            recentDescriptions.insert((desc, thumb), at: 0)
+                        } else {
+                            recentDescriptions[recentDescriptions.count - 1] = (desc, thumb)
+                            recentDescriptions.insert(recentDescriptions.removeLast(), at: 0)
+                        }
                         if recentDescriptions.count > 10 {
                             recentDescriptions.removeLast()
                         }
@@ -173,27 +170,31 @@ class TagsViewModel: ObservableObject {
                 }
             }
 
-            // After quick phase (500), mark as ready so user can search
+            // After quick phase, mark as ready
             if needsQuickPhase && scannedCount >= quickScanLimit && state != .ready {
                 state = .ready
                 persistDescriptions()
             }
 
-            // Update progress
             if state != .ready {
                 state = .scanning(min(1.0, Double(scannedCount) / Double(totalCount)))
             }
 
-            // Persist every 100 photos (not every batch)
-            if scannedCount % 100 < batchSize {
+            // Persist every 5 batches (~100 photos)
+            batchesSinceLastPersist += 1
+            if batchesSinceLastPersist >= 5 {
                 persistDescriptions()
+                batchesSinceLastPersist = 0
             }
         }
 
+        persistDescriptions()
         state = .ready
     }
 
     // MARK: - Llama 4 Scout API
+
+    private var retryCount = 0
 
     private func describeWithLlama(base64Image: String) async -> String? {
         let requestBody: [String: Any] = [
@@ -211,9 +212,10 @@ class TagsViewModel: ObservableObject {
             "temperature": 0.3
         ]
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else { return nil }
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody),
+              let url = URL(string: "https://api.groq.com/openai/v1/chat/completions") else { return nil }
 
-        var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(Config.groqAPIKey)", forHTTPHeaderField: "Authorization")
@@ -223,11 +225,20 @@ class TagsViewModel: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            // Handle rate limiting
+            // Rate limiting — wait and retry (max 3 times)
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 429 {
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // wait 2s
-                return await describeWithLlama(base64Image: base64Image)
+                retryCount += 1
+                if retryCount > 3 {
+                    retryCount = 0
+                    return nil
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                let result = await describeWithLlama(base64Image: base64Image)
+                retryCount = 0
+                return result
             }
+
+            retryCount = 0
 
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let choices = json["choices"] as? [[String: Any]],
@@ -255,11 +266,7 @@ class TagsViewModel: ObservableObject {
             guard let description = descriptionIndex[asset.localIdentifier] else { continue }
 
             let descLower = description.lowercased()
-            let match = lowered.contains { searchTag in
-                descLower.contains(searchTag)
-            }
-
-            if match {
+            if lowered.contains(where: { descLower.contains($0) }) {
                 results.append(asset)
                 if results.count >= 200 { break }
             }
@@ -268,11 +275,10 @@ class TagsViewModel: ObservableObject {
         return results
     }
 
-    /// Search by location: geocode the place name once, then find photos with nearby GPS
+    /// Search by location: geocode once, find nearby GPS photos
     func searchByLocation(place: String, photoLibrary: PhotoLibraryService) async -> [PHAsset] {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
-        // Geocode the search query to get coordinates
         let targetLocation: CLLocation? = await withCheckedContinuation { continuation in
             CLGeocoder().geocodeAddressString(place) { placemarks, _ in
                 continuation.resume(returning: placemarks?.first?.location)
@@ -281,12 +287,11 @@ class TagsViewModel: ObservableObject {
 
         guard let target = targetLocation else { return [] }
 
-        // Find photos within 5km of that location
         var results: [PHAsset] = []
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             guard let assetLoc = asset.location else { continue }
-            if assetLoc.distance(from: target) < 5000 { // 5km radius
+            if assetLoc.distance(from: target) < 5000 {
                 results.append(asset)
                 if results.count >= 200 { break }
             }
@@ -310,15 +315,12 @@ class TagsViewModel: ObservableObject {
         }
 
         var results: [PHAsset] = []
-
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             guard let description = descriptionIndex[asset.localIdentifier] else { continue }
 
             let descLower = description.lowercased()
-            let match = keywords.contains { descLower.contains($0) }
-
-            if match {
+            if keywords.contains(where: { descLower.contains($0) }) {
                 results.append(asset)
                 if results.count >= 300 { break }
             }
@@ -327,8 +329,26 @@ class TagsViewModel: ObservableObject {
         return results
     }
 
-    /// Available tags for Groq context (now returns sample descriptions)
+    /// Get photos with people (from AI descriptions)
+    func photosForPeople(photoLibrary: PhotoLibraryService) -> [PHAsset] {
+        guard let allPhotos = photoLibrary.allPhotos else { return [] }
+        let keywords = ["persona", "hombre", "mujer", "niño", "niña", "gente", "grupo", "retrato", "rostro", "cara"]
+
+        var results: [PHAsset] = []
+        for i in 0..<allPhotos.count {
+            let asset = allPhotos.object(at: i)
+            guard let description = descriptionIndex[asset.localIdentifier] else { continue }
+
+            let descLower = description.lowercased()
+            if keywords.contains(where: { descLower.contains($0) }) {
+                results.append(asset)
+                if results.count >= 300 { break }
+            }
+        }
+        return results
+    }
+
     var availableTags: [String] {
-        return Array(descriptionIndex.values.prefix(50))
+        Array(descriptionIndex.values.prefix(50))
     }
 }

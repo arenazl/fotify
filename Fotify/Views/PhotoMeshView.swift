@@ -100,7 +100,8 @@ struct PhotoMeshView: View {
         formatter.dateFormat = "MMMM yyyy"
         formatter.locale = Locale(identifier: "es_AR")
 
-        for i in 0..<allPhotos.count {
+        let limit = min(allPhotos.count, 1000)
+        for i in 0..<limit {
             let asset = allPhotos.object(at: i)
             let key = asset.creationDate.map { formatter.string(from: $0) } ?? "Sin fecha"
             groups[key, default: []].append(asset)

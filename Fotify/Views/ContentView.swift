@@ -115,7 +115,7 @@ struct CortexTab: View {
                         cortexHeader
 
                         // Categories grid
-                        NeuralDashboard { category in }
+                        NeuralDashboard()
 
                         // Scan status
                         if case .scanning(let progress) = tagsVM.state {
