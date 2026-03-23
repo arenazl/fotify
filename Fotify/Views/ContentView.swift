@@ -349,7 +349,7 @@ struct SearchTab: View {
                             LazyVGrid(columns: columns, spacing: 2) {
                                 ForEach(0..<assets.count, id: \.self) { index in
                                     VStack(spacing: 2) {
-                                        CategoryPhotoCell(asset: assets[index])
+                                        PhotoGridCell(asset: assets[index])
                                         if index < debugMatchedTags.count {
                                             Text(debugMatchedTags[index].prefix(4).joined(separator: ", "))
                                                 .font(.system(size: 8))
