@@ -30,7 +30,7 @@ class TagsViewModel: ObservableObject {
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 3 // force reindex for debug
+    private let currentSchemaVersion = 4 // fix: never describe what's NOT in the photo
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
@@ -211,7 +211,7 @@ class TagsViewModel: ObservableObject {
                 [
                     "role": "user",
                     "content": [
-                        ["type": "text", "text": "Describí esta foto en una línea corta en español. Incluí: personas visibles, lugar o ubicación si se reconoce, objetos principales, tipo de escena, momento del día. Solo la descripción, nada más."],
+                        ["type": "text", "text": "Describí esta foto en una línea corta en español. SOLO describí lo que SÍ se ve. NUNCA digas lo que NO hay. Incluí: personas (si hay), lugar, objetos, escena. Si no hay personas, no las menciones. Solo la descripción, nada más."],
                         ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                     ]
                 ]
