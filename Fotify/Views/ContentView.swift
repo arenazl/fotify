@@ -238,14 +238,24 @@ struct SearchTab: View {
 
                     // Status
                     if case .scanning(let progress) = tagsVM.state {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(.purple).scaleEffect(0.7)
-                            Text("Escaneando... \(Int(progress * 100))%")
-                                .font(.caption2).foregroundStyle(.secondary)
+                        VStack(spacing: 4) {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.purple).scaleEffect(0.7)
+                                Text("Escaneando... \(Int(progress * 100))% (\(tagsVM.scannedCount)/\(tagsVM.totalCount))")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Text("\(tagsVM.recentDescriptions.count) descripciones recientes")
+                                .font(.system(size: 9)).foregroundStyle(.purple.opacity(0.5))
                         }
                     } else if tagsVM.scannedCount > 0 {
-                        Text("\(tagsVM.scannedCount) fotos indexadas")
-                            .font(.caption2).foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text("\(tagsVM.scannedCount) fotos indexadas")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if tagsVM.scannedCount < tagsVM.totalCount {
+                                Text("· indexando en background...")
+                                    .font(.caption2).foregroundStyle(.purple.opacity(0.6))
+                            }
+                        }
                     }
 
                     if !aiMessage.isEmpty {
@@ -257,34 +267,41 @@ struct SearchTab: View {
 
                     // Results
                     if assets.isEmpty && searchText.isEmpty {
-                        // Show live indexing feed
-                        if !tagsVM.recentDescriptions.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
+                        // Live indexing feed — always show when scanning
+                        if case .scanning = tagsVM.state {
+                            VStack(alignment: .leading, spacing: 8) {
                                 Text("INDEXANDO EN VIVO")
                                     .font(.caption2.bold())
                                     .kerning(2)
                                     .foregroundStyle(.purple)
                                     .padding(.horizontal, 20)
 
-                                ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 8) {
-                                        ForEach(0..<tagsVM.recentDescriptions.count, id: \.self) { i in
-                                            let (desc, thumb) = tagsVM.recentDescriptions[i]
-                                            HStack(spacing: 10) {
-                                                if let img = thumb {
-                                                    Image(uiImage: img)
-                                                        .resizable()
-                                                        .scaledToFill()
-                                                        .frame(width: 44, height: 44)
-                                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                if tagsVM.recentDescriptions.isEmpty {
+                                    Text("Esperando primeras descripciones...")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 20)
+                                } else {
+                                    ScrollView(showsIndicators: false) {
+                                        VStack(spacing: 10) {
+                                            ForEach(0..<tagsVM.recentDescriptions.count, id: \.self) { i in
+                                                let (desc, thumb) = tagsVM.recentDescriptions[i]
+                                                HStack(spacing: 10) {
+                                                    if let img = thumb {
+                                                        Image(uiImage: img)
+                                                            .resizable()
+                                                            .scaledToFill()
+                                                            .frame(width: 50, height: 50)
+                                                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                    }
+                                                    Text(desc)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.white.opacity(0.9))
+                                                        .lineLimit(3)
+                                                    Spacer()
                                                 }
-                                                Text(desc)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.white.opacity(0.8))
-                                                    .lineLimit(2)
-                                                Spacer()
+                                                .padding(.horizontal, 20)
                                             }
-                                            .padding(.horizontal, 20)
                                         }
                                     }
                                 }

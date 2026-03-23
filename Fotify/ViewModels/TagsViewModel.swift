@@ -77,14 +77,18 @@ class TagsViewModel: ObservableObject {
             return
         }
 
-        state = .scanning(Double(scannedCount) / Double(totalCount))
+        // Phase 1: quick scan of first 500, then mark as ready
+        let quickScanLimit = 500
+        let alreadyScanned = scannedCount
+        let needsQuickPhase = alreadyScanned < quickScanLimit && toScan.count > 0
+
+        state = .scanning(Double(scannedCount) / Double(min(totalCount, quickScanLimit)))
 
         // Process in batches
         for batchStart in stride(from: 0, to: toScan.count, by: batchSize) {
             let batchEnd = min(batchStart + batchSize, toScan.count)
             let batch = Array(toScan[batchStart..<batchEnd])
 
-            // Process batch concurrently (up to 5 at a time)
             await withTaskGroup(of: (String, String?, UIImage?).self) { group in
                 for asset in batch {
                     group.addTask {
@@ -103,7 +107,6 @@ class TagsViewModel: ObservableObject {
                     if let desc = description {
                         descriptionIndex[assetId] = desc
                         scannedCount = descriptionIndex.count
-                        // Keep last 10 descriptions for live feed
                         recentDescriptions.insert((desc, thumb), at: 0)
                         if recentDescriptions.count > 10 {
                             recentDescriptions.removeLast()
@@ -112,10 +115,18 @@ class TagsViewModel: ObservableObject {
                 }
             }
 
-            state = .scanning(Double(scannedCount) / Double(totalCount))
-            persistDescriptions()
+            // After quick phase (500), mark as ready so user can search
+            if needsQuickPhase && scannedCount >= quickScanLimit && state != .ready {
+                state = .ready
+                persistDescriptions()
+            }
 
-            // Pause between batches
+            // Update progress
+            if state != .ready {
+                state = .scanning(Double(scannedCount) / Double(min(totalCount, quickScanLimit)))
+            }
+
+            persistDescriptions()
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
 
