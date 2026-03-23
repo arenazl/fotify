@@ -7,7 +7,7 @@ enum Config {
     static let groqVisionModel: String = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     // MARK: - Limits
-    static let maxPhotosForVisionScan: Int = 500
+    static let quickScanLimit: Int = 500
     static let maxPhotosForGroqScan: Int = 100
     static let thumbnailSize: CGFloat = 200
     static let groqImageSize: CGFloat = 512

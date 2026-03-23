@@ -76,6 +76,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
 class PhotoLibraryService: ObservableObject {
     @Published var authorizationStatus: PHAuthorizationStatus = .notDetermined
     @Published var allPhotos: PHFetchResult<PHAsset>?
+    @Published var recents: PHFetchResult<PHAsset>?
     @Published var screenshots: PHFetchResult<PHAsset>?
     @Published var favorites: PHFetchResult<PHAsset>?
     @Published var videos: PHFetchResult<PHAsset>?
@@ -83,6 +84,7 @@ class PhotoLibraryService: ObservableObject {
     @Published var livePhotos: PHFetchResult<PHAsset>?
     @Published var people: PHFetchResult<PHAsset>?
     @Published var photoCount: Int = 0
+    @Published var recentsCount: Int = 0
     @Published var screenshotCount: Int = 0
     @Published var favoritesCount: Int = 0
     @Published var videosCount: Int = 0
@@ -118,6 +120,13 @@ class PhotoLibraryService: ObservableObject {
         allOptions.sortDescriptors = defaultSort
         allPhotos = PHAsset.fetchAssets(with: .image, options: allOptions)
         photoCount = allPhotos?.count ?? 0
+
+        // Recents (last 500 photos)
+        let recentsOptions = PHFetchOptions()
+        recentsOptions.sortDescriptors = defaultSort
+        recentsOptions.fetchLimit = Config.quickScanLimit
+        recents = PHAsset.fetchAssets(with: .image, options: recentsOptions)
+        recentsCount = recents?.count ?? 0
 
         // Screenshots (smart album — iOS manages this, more accurate)
         let screenshotCollections = PHAssetCollection.fetchAssetCollections(
@@ -190,7 +199,7 @@ class PhotoLibraryService: ObservableObject {
 
     func count(for category: PhotoCategory) -> Int? {
         switch category {
-        case .recents: return photoCount
+        case .recents: return recentsCount
         case .screenshots: return screenshotCount > 0 ? screenshotCount : nil
         case .favorites: return favoritesCount > 0 ? favoritesCount : nil
         case .videos: return videosCount > 0 ? videosCount : nil
@@ -203,7 +212,7 @@ class PhotoLibraryService: ObservableObject {
 
     func fetchResult(for category: PhotoCategory) -> PHFetchResult<PHAsset>? {
         switch category {
-        case .recents: return allPhotos
+        case .recents: return recents
         case .screenshots: return screenshots
         case .favorites: return favorites
         case .videos: return videos

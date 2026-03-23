@@ -77,8 +77,8 @@ class TagsViewModel: ObservableObject {
             return
         }
 
-        // Phase 1: quick scan of first 500, then mark as ready
-        let quickScanLimit = 500
+        // Phase 1: quick scan first batch, then mark as ready
+        let quickScanLimit = Config.quickScanLimit
         let alreadyScanned = scannedCount
         let needsQuickPhase = alreadyScanned < quickScanLimit && toScan.count > 0
 
