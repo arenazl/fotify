@@ -1,6 +1,46 @@
 import SwiftUI
 import Photos
 
+enum GridSize: String, CaseIterable {
+    case small, medium, large
+
+    var columnCount: Int {
+        switch self {
+        case .small: 5
+        case .medium: 3
+        case .large: 2
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .small: "Chico"
+        case .medium: "Medio"
+        case .large: "Grande"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .small: "square.grid.4x3.fill"
+        case .medium: "square.grid.3x3.fill"
+        case .large: "square.grid.2x2.fill"
+        }
+    }
+}
+
+enum GroupBy: String, CaseIterable {
+    case none, week, month
+
+    var label: String {
+        switch self {
+        case .none: "Todas"
+        case .week: "Semana"
+        case .month: "Mes"
+        }
+    }
+}
+
 struct CategoryDetailView: View {
     let category: PhotoCategory
     @EnvironmentObject var photoLibrary: PhotoLibraryService
@@ -10,8 +50,12 @@ struct CategoryDetailView: View {
     @State private var totalCount: Int = 0
     @State private var isLoading = true
     @State private var selectedIndex: Int?
+    @State private var gridSize: GridSize = .medium
+    @State private var groupBy: GroupBy = .none
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 1), count: gridSize.columnCount)
+    }
 
     var body: some View {
         ZStack {
@@ -41,6 +85,40 @@ struct CategoryDetailView: View {
                     Text("\(totalCount)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    // Grid size
+                    Section("Tamaño") {
+                        ForEach(GridSize.allCases, id: \.self) { size in
+                            Button {
+                                withAnimation(.spring(duration: 0.3)) { gridSize = size }
+                            } label: {
+                                Label(size.label, systemImage: size.icon)
+                                if gridSize == size {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                    // Group by
+                    Section("Agrupar por") {
+                        ForEach(GroupBy.allCases, id: \.self) { group in
+                            Button {
+                                withAnimation(.spring(duration: 0.3)) { groupBy = group }
+                            } label: {
+                                Label(group.label, systemImage: group == .none ? "square.grid.3x3" : group == .week ? "calendar" : "calendar.badge.clock")
+                                if groupBy == group {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.white)
                 }
             }
         }
@@ -79,19 +157,111 @@ struct CategoryDetailView: View {
 
     private var photoGrid: some View {
         ScrollView(showsIndicators: false) {
-            LazyVGrid(columns: columns, spacing: 1) {
-                if let fetch = fetchResult {
-                    ForEach(0..<min(fetch.count, 5000), id: \.self) { index in
-                        PhotoGridCell(asset: fetch.object(at: index))
-                            .onTapGesture { selectedIndex = index }
-                    }
-                } else {
-                    ForEach(0..<assets.count, id: \.self) { index in
-                        PhotoGridCell(asset: assets[index])
-                            .onTapGesture { selectedIndex = index }
-                    }
+            if groupBy == .none {
+                flatGrid
+            } else {
+                groupedGrid
+            }
+        }
+    }
+
+    private var flatGrid: some View {
+        LazyVGrid(columns: columns, spacing: 1) {
+            if let fetch = fetchResult {
+                ForEach(0..<min(fetch.count, 5000), id: \.self) { index in
+                    PhotoGridCell(asset: fetch.object(at: index))
+                        .onTapGesture { selectedIndex = index }
+                }
+            } else {
+                ForEach(0..<assets.count, id: \.self) { index in
+                    PhotoGridCell(asset: assets[index])
+                        .onTapGesture { selectedIndex = index }
                 }
             }
+        }
+    }
+
+    private var groupedGrid: some View {
+        LazyVStack(alignment: .leading, spacing: 16) {
+            let grouped = groupPhotos()
+            ForEach(grouped, id: \.title) { group in
+                Section {
+                    LazyVGrid(columns: columns, spacing: 1) {
+                        ForEach(0..<group.assets.count, id: \.self) { i in
+                            PhotoGridCell(asset: group.assets[i])
+                                .onTapGesture {
+                                    // Find global index for viewer
+                                    selectedIndex = group.globalIndices[i]
+                                }
+                        }
+                    }
+                } header: {
+                    Text(group.title)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    private struct PhotoGroup: Hashable {
+        let title: String
+        let assets: [PHAsset]
+        let globalIndices: [Int]
+
+        func hash(into hasher: inout Hasher) { hasher.combine(title) }
+        static func == (lhs: PhotoGroup, rhs: PhotoGroup) -> Bool { lhs.title == rhs.title }
+    }
+
+    private func groupPhotos() -> [PhotoGroup] {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "es_AR")
+
+        if groupBy == .month {
+            formatter.dateFormat = "MMMM yyyy"
+        } else {
+            formatter.dateFormat = "'Semana del' d MMM"
+        }
+
+        var groups: [String: (assets: [PHAsset], indices: [Int])] = [:]
+        var order: [String] = []
+
+        let count: Int
+        let assetAt: (Int) -> PHAsset
+
+        if let fetch = fetchResult {
+            count = min(fetch.count, 5000)
+            assetAt = { fetch.object(at: $0) }
+        } else {
+            count = assets.count
+            assetAt = { assets[$0] }
+        }
+
+        for i in 0..<count {
+            let asset = assetAt(i)
+            guard let date = asset.creationDate else { continue }
+
+            let key: String
+            if groupBy == .month {
+                key = formatter.string(from: date)
+            } else {
+                let weekStart = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+                key = formatter.string(from: weekStart)
+            }
+
+            if groups[key] == nil {
+                groups[key] = ([], [])
+                order.append(key)
+            }
+            groups[key]?.assets.append(asset)
+            groups[key]?.indices.append(i)
+        }
+
+        return order.map { key in
+            PhotoGroup(title: key.capitalized, assets: groups[key]!.assets, globalIndices: groups[key]!.indices)
         }
     }
 
