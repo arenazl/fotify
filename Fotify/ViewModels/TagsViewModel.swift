@@ -28,14 +28,10 @@ class TagsViewModel: ObservableObject {
 
     // MARK: - Persistence
 
-    private var tagsFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        return appSupport.appendingPathComponent("photo_descriptions.json")
-    }
+    private let storageKey = "fotify_photo_descriptions"
 
     func loadPersistedTags() {
-        guard let data = try? Data(contentsOf: tagsFileURL),
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
               let entries = try? JSONDecoder().decode([PhotoDescription].self, from: data) else {
             return
         }
@@ -51,7 +47,7 @@ class TagsViewModel: ObservableObject {
     private func persistDescriptions() {
         let entries = descriptionIndex.map { PhotoDescription(assetId: $0.key, description: $0.value) }
         if let data = try? JSONEncoder().encode(entries) {
-            try? data.write(to: tagsFileURL)
+            UserDefaults.standard.set(data, forKey: storageKey)
         }
     }
 
