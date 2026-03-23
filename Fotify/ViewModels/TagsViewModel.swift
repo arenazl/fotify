@@ -28,10 +28,11 @@ class TagsViewModel: ObservableObject {
 
     // MARK: - Persistence
 
-    private let storageKey = "fotify_photo_descriptions"
+    private let keychainService = "com.fotify.descriptions"
+    private let keychainAccount = "photo_descriptions"
 
     func loadPersistedTags() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        guard let data = keychainRead() ,
               let entries = try? JSONDecoder().decode([PhotoDescription].self, from: data) else {
             return
         }
@@ -47,8 +48,40 @@ class TagsViewModel: ObservableObject {
     private func persistDescriptions() {
         let entries = descriptionIndex.map { PhotoDescription(assetId: $0.key, description: $0.value) }
         if let data = try? JSONEncoder().encode(entries) {
-            UserDefaults.standard.set(data, forKey: storageKey)
+            keychainWrite(data)
         }
+    }
+
+    // MARK: - Keychain (survives app reinstall)
+
+    private func keychainWrite(_ data: Data) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func keychainRead() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecSuccess {
+            return result as? Data
+        }
+        return nil
     }
 
     // MARK: - Background Scan with Llama 4 Scout
