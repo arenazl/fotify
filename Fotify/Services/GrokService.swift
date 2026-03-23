@@ -10,6 +10,7 @@ struct GrokCommandResponse {
         case showPhotos
         case tagPhotos
         case searchByTags([String])
+        case searchByLocation(String) // place name
         case createAlbum(String, [String]) // album name, search tags
         case chat(String)
         case none
@@ -63,6 +64,8 @@ actor GrokService {
         "comida japonesa" → tags: ["comida", "japonesa", "sushi"]
 
         Si pide crear una carpeta/álbum, usá action "create_album" y en tags poné las palabras de búsqueda.
+        Si busca por ubicación/lugar/ciudad/país, usá action "location" y en tags poné el nombre del lugar.
+        Ejemplo: "fotos en Mendoza" → {"action": "location", "tags": ["Mendoza, Argentina"], "message": "Buscando fotos en Mendoza"}
         Si pide ver capturas, usá action "screenshots".
         Si pide duplicados, usá action "duplicates".
         Si es una pregunta general, usá action "chat".
@@ -136,6 +139,10 @@ actor GrokService {
             return GrokCommandResponse(action: .searchByTags(tags), message: message)
         case "classify":
             return GrokCommandResponse(action: .tagPhotos, message: message)
+        case "location":
+            let tags = json["tags"] as? [String] ?? []
+            let place = tags.first ?? ""
+            return GrokCommandResponse(action: .searchByLocation(place), message: message)
         case "create_album":
             let tags = json["tags"] as? [String] ?? []
             let albumName = json["album_name"] as? String ?? message

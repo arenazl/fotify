@@ -379,25 +379,20 @@ struct SearchTab: View {
 
         withAnimation { aiMessage = response.message }
 
-        let searchTags: [String]
         switch response.action {
         case .searchByTags(let tags):
-            searchTags = tags
-        case .createAlbum(let albumName, let tags):
-            searchTags = tags
             assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
-            // Create the album
+        case .searchByLocation(let place):
+            assets = await tagsVM.searchByLocation(place: place, photoLibrary: photoLibrary)
+        case .createAlbum(let albumName, let tags):
+            assets = tagsVM.search(tags: tags, photoLibrary: photoLibrary)
             if !assets.isEmpty {
                 try? await photoLibrary.createAlbum(name: albumName, assets: assets)
                 withAnimation { aiMessage = "Álbum \"\(albumName)\" creado con \(assets.count) fotos" }
             }
-            isSearching = false
-            return
         default:
-            searchTags = [searchText]
+            assets = tagsVM.search(tags: [searchText], photoLibrary: photoLibrary)
         }
-
-        assets = tagsVM.search(tags: searchTags, photoLibrary: photoLibrary)
 
         isSearching = false
     }

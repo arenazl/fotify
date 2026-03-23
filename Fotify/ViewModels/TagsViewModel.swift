@@ -130,17 +130,16 @@ class TagsViewModel: ObservableObject {
                         let base64 = jpegData.base64EncodedString()
                         var aiDesc = await self.describeWithLlama(base64Image: base64) ?? ""
 
-                        // Append geo + date metadata
+                        // Append date + raw GPS (no geocoding, resolved at search time)
                         var meta: [String] = []
-                        if let location = asset.location {
-                            let placeName = await self.reverseGeocode(location: location)
-                            if let place = placeName { meta.append("Ubicación: \(place)") }
-                        }
                         if let date = asset.creationDate {
                             let fmt = DateFormatter()
                             fmt.locale = Locale(identifier: "es_AR")
-                            fmt.dateFormat = "d MMMM yyyy, HH:mm"
+                            fmt.dateFormat = "d MMMM yyyy"
                             meta.append("Fecha: \(fmt.string(from: date))")
+                        }
+                        if let loc = asset.location {
+                            meta.append("GPS: \(String(format: "%.4f", loc.coordinate.latitude)),\(String(format: "%.4f", loc.coordinate.longitude))")
                         }
                         if !meta.isEmpty {
                             aiDesc += ". " + meta.joined(separator: ". ")
@@ -229,36 +228,13 @@ class TagsViewModel: ObservableObject {
         return nil
     }
 
-    // MARK: - Reverse Geocoding
-
-    private func reverseGeocode(location: CLLocation) async -> String? {
-        await withCheckedContinuation { continuation in
-            CLGeocoder().reverseGeocodeLocation(location) { placemarks, _ in
-                guard let place = placemarks?.first else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                var parts: [String] = []
-                if let locality = place.locality { parts.append(locality) }
-                if let admin = place.administrativeArea, admin != place.locality { parts.append(admin) }
-                if let country = place.country { parts.append(country) }
-                continuation.resume(returning: parts.isEmpty ? nil : parts.joined(separator: ", "))
-            }
-        }
-    }
-
     // MARK: - Search
 
     func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        return searchWithDebug(tags: searchTags, photoLibrary: photoLibrary).assets
-    }
-
-    func searchWithDebug(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> (assets: [PHAsset], matchedTags: [[String]]) {
-        guard let allPhotos = photoLibrary.allPhotos else { return ([], []) }
+        guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
         let lowered = searchTags.map { $0.lowercased() }
         var results: [PHAsset] = []
-        var matchedDescs: [[String]] = []
 
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
@@ -271,12 +247,38 @@ class TagsViewModel: ObservableObject {
 
             if match {
                 results.append(asset)
-                matchedDescs.append([description])
                 if results.count >= 200 { break }
             }
         }
 
-        return (results, matchedDescs)
+        return results
+    }
+
+    /// Search by location: geocode the place name once, then find photos with nearby GPS
+    func searchByLocation(place: String, photoLibrary: PhotoLibraryService) async -> [PHAsset] {
+        guard let allPhotos = photoLibrary.allPhotos else { return [] }
+
+        // Geocode the search query to get coordinates
+        let targetLocation: CLLocation? = await withCheckedContinuation { continuation in
+            CLGeocoder().geocodeAddressString(place) { placemarks, _ in
+                continuation.resume(returning: placemarks?.first?.location)
+            }
+        }
+
+        guard let target = targetLocation else { return [] }
+
+        // Find photos within 5km of that location
+        var results: [PHAsset] = []
+        for i in 0..<allPhotos.count {
+            let asset = allPhotos.object(at: i)
+            guard let assetLoc = asset.location else { continue }
+            if assetLoc.distance(from: target) < 5000 { // 5km radius
+                results.append(asset)
+                if results.count >= 200 { break }
+            }
+        }
+
+        return results
     }
 
     /// Get photos matching a category (documents or landscapes)
