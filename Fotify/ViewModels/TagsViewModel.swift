@@ -330,6 +330,10 @@ class TagsViewModel: ObservableObject {
         return searchByTerms(["hombre", "mujer", "niño", "niña", "persona", "gente", "grupo", "bebé", "joven"], photoLibrary: photoLibrary)
     }
 
+    func tagsForAsset(_ assetId: String) -> [String]? {
+        return photoIndex[assetId]?.tags
+    }
+
     var availableTags: [String] {
         var allTags: Set<String> = []
         for photo in photoIndex.values.prefix(100) {

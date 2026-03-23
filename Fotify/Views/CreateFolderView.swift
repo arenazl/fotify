@@ -16,6 +16,7 @@ struct CreateFolderView: View {
     @State private var searchTerms: [String] = []
     @State private var isRecording = false
     @State private var isSelecting = false
+    @State private var debugLog: [String] = []
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
@@ -133,6 +134,31 @@ struct CreateFolderView: View {
                             }
                         }
 
+                        // Debug log
+                        if !debugLog.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("DEBUG LOG")
+                                        .font(.caption2.bold())
+                                        .kerning(2)
+                                        .foregroundStyle(.yellow)
+                                    Spacer()
+                                    Button("Limpiar") { debugLog.removeAll() }
+                                        .font(.caption2).foregroundStyle(.red)
+                                }
+                                ForEach(0..<debugLog.count, id: \.self) { i in
+                                    Text(debugLog[i])
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundStyle(.white.opacity(0.7))
+                                        .lineLimit(5)
+                                }
+                            }
+                            .padding(12)
+                            .background(.black.opacity(0.6))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .padding(.horizontal, 16)
+                        }
+
                         // Folder name + create button
                         VStack(spacing: 12) {
                             TextField("Nombre de la carpeta", text: $folderName)
@@ -183,11 +209,14 @@ struct CreateFolderView: View {
     private func performSearch() async {
         guard !searchText.isEmpty else { return }
         isSearching = true
+        debugLog.removeAll()
 
-        // Auto-set folder name from search
         if folderName.isEmpty {
             folderName = searchText.capitalized
         }
+
+        debugLog.append("QUERY: \"\(searchText)\"")
+        debugLog.append("INDEX: \(tagsVM.scannedCount) fotos indexadas")
 
         let response = await GrokService.shared.processCommand(
             searchText,
@@ -195,16 +224,30 @@ struct CreateFolderView: View {
             availableTags: tagsVM.availableTags
         )
 
+        debugLog.append("GROQ ACTION: \(response.message)")
+
         switch response.action {
         case .searchByTerms(let terms):
             searchTerms = terms
+            debugLog.append("SEARCH TERMS: \(terms.prefix(10).joined(separator: ", "))")
             assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
+            debugLog.append("RESULTADOS: \(assets.count) fotos")
+            // Log tags of first 5 matches
+            for (i, asset) in assets.prefix(5).enumerated() {
+                if let tags = tagsVM.tagsForAsset(asset.localIdentifier) {
+                    debugLog.append("MATCH \(i+1): \(tags.joined(separator: ", "))")
+                }
+            }
         case .searchByLocation(let place):
             searchTerms = [place]
+            debugLog.append("LOCATION: \"\(place)\"")
             assets = await tagsVM.searchByLocation(place: place, photoLibrary: photoLibrary)
+            debugLog.append("GPS RESULTS: \(assets.count) fotos")
         default:
             searchTerms = [searchText.lowercased()]
+            debugLog.append("FALLBACK: buscando \"\(searchText)\"")
             assets = tagsVM.searchByTerms(searchTerms, photoLibrary: photoLibrary)
+            debugLog.append("RESULTADOS: \(assets.count) fotos")
         }
 
         isSearching = false
