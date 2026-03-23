@@ -50,6 +50,7 @@ actor GrokService {
         // Send to Groq — extract search keywords from user command
         let prompt = """
         Sos el asistente de Fotify, una app de fotos para iOS.
+        El usuario es de ARGENTINA. Siempre priorizá ubicaciones argentinas.
         El usuario tiene \(await photoLibrary.photoCount) fotos indexadas con descripciones en español.
 
         El usuario dice: "\(command)"
@@ -63,7 +64,8 @@ actor GrokService {
         "comida japonesa" → tags: ["comida", "japonesa", "sushi"]
 
         Si pide crear una carpeta/álbum, usá action "create_album" y en tags poné las palabras de búsqueda.
-        Si busca por ubicación/lugar/ciudad/país, usá action "location" y en tags poné el nombre del lugar.
+        Si busca por ubicación/lugar/ciudad/país, usá action "location" y en tags poné el nombre COMPLETO del lugar con provincia y Argentina.
+        Ejemplo: "fotos en Padua" → {"action": "location", "tags": ["Padua, Buenos Aires, Argentina"], "message": "Buscando fotos en Padua"}
         Ejemplo: "fotos en Mendoza" → {"action": "location", "tags": ["Mendoza, Argentina"], "message": "Buscando fotos en Mendoza"}
         Si pide ver capturas, usá action "screenshots".
         Si pide duplicados, usá action "duplicates".
