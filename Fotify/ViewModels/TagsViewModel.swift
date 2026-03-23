@@ -2,51 +2,13 @@ import SwiftUI
 import Photos
 import CoreLocation
 
-// MARK: - Structured photo description
-
-struct PhotoFields: Codable {
-    let personas: String
-    let lugar: String
-    let objetos: String
-    let escena: String
-    let actividad: String
-    let texto: String
-
-    /// Check if any field matches the given values
-    func matchesField(_ field: String, values: [String]) -> Bool {
-        let fieldValue: String
-        switch field {
-        case "personas": fieldValue = personas
-        case "lugar": fieldValue = lugar
-        case "objetos": fieldValue = objetos
-        case "escena": fieldValue = escena
-        case "actividad": fieldValue = actividad
-        case "texto": fieldValue = texto
-        default: return false
-        }
-        let lower = fieldValue.lowercased()
-        if values.contains("not_empty") { return !lower.isEmpty }
-        return values.contains { lower.contains($0.lowercased()) }
-    }
-}
+// MARK: - Indexed photo data
 
 struct IndexedPhoto: Codable {
     let assetId: String
-    let fields: PhotoFields
+    let tags: [String]
     let date: String?
-    let gps: String? // "lat,lng"
-}
-
-// MARK: - Search filter (from Groq)
-
-struct SearchFilter: Codable {
-    let field: String
-    let values: [String]
-}
-
-struct SearchResponse: Codable {
-    let filters: [SearchFilter]
-    let message: String
+    let gps: String?
 }
 
 // MARK: - Tags ViewModel
@@ -70,7 +32,7 @@ class TagsViewModel: ObservableObject {
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 5 // structured fields
+    private let currentSchemaVersion = 6 // free tags
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
@@ -134,8 +96,7 @@ class TagsViewModel: ObservableObject {
         let batchSize = 20
 
         var toScan: [PHAsset] = []
-        let scanMax = Config.debugMode ? Config.quickScanLimit : allPhotos.count
-        for i in 0..<min(allPhotos.count, scanMax) {
+        for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             if photoIndex[asset.localIdentifier] == nil {
                 toScan.append(asset)
@@ -174,14 +135,13 @@ class TagsViewModel: ObservableObject {
                         }
 
                         let base64 = jpegData.base64EncodedString()
-                        let fields = await self.analyzeWithLlama(base64Image: base64)
+                        let tags = await self.analyzeWithLlama(base64Image: base64)
 
-                        if let f = fields {
-                            let summary = "[\(f.escena)] \(f.objetos.prefix(30))"
-                            await DebugLogger.shared.log("INDEX", "OK: \(summary)")
+                        if let tags = tags {
+                            await DebugLogger.shared.log("INDEX", "OK: \(tags.prefix(5).joined(separator: ", "))")
                             if gpsStr != nil { await DebugLogger.shared.log("INDEX", "GPS: \(gpsStr!)") }
 
-                            let indexed = IndexedPhoto(assetId: asset.localIdentifier, fields: f, date: dateStr, gps: gpsStr)
+                            let indexed = IndexedPhoto(assetId: asset.localIdentifier, tags: tags, date: dateStr, gps: gpsStr)
                             return (asset.localIdentifier, indexed, image)
                         } else {
                             await DebugLogger.shared.log("INDEX", "ERROR: IA no respondió")
@@ -194,7 +154,7 @@ class TagsViewModel: ObservableObject {
                     if let idx = indexed {
                         photoIndex[idx.assetId] = idx
                         scannedCount += 1
-                        let desc = "[\(idx.fields.escena)] \(idx.fields.objetos.prefix(40))"
+                        let desc = idx.tags.prefix(5).joined(separator: ", ")
                         if recentDescriptions.count >= 10 { recentDescriptions.removeLast() }
                         recentDescriptions.insert((desc, thumb), at: 0)
                     }
@@ -225,26 +185,14 @@ class TagsViewModel: ObservableObject {
 
     private var retryCount = 0
 
-    private func analyzeWithLlama(base64Image: String) async -> PhotoFields? {
+    private func analyzeWithLlama(base64Image: String) async -> [String]? {
         let requestBody: [String: Any] = [
             "model": Config.groqVisionModel,
             "messages": [
                 [
                     "role": "user",
                     "content": [
-                        ["type": "text", "text": """
-                            Analizá esta foto y respondé SOLO con este JSON (sin markdown, sin ```):
-                            {"personas":"","lugar":"","objetos":"","escena":"","actividad":"","texto":""}
-
-                            Reglas:
-                            - personas: quiénes se ven (hombre, mujer, niño, grupo, bebé). Vacío "" si no hay nadie.
-                            - lugar: tipo de lugar (interior/exterior, y tipo: casa, oficina, playa, calle, parque, restaurante, etc)
-                            - objetos: TODOS los objetos principales visibles (animales incluidos)
-                            - escena: tipo de escena en 2-3 palabras
-                            - actividad: qué está pasando
-                            - texto: texto visible en la foto (carteles, pantallas, etiquetas). Vacío "" si no hay.
-                            Solo lo que se ve. Campos vacíos "" si no aplica. Sé específico.
-                            """],
+                        ["type": "text", "text": "Analizá esta foto y generá los 15 tags más importantes para poder encontrarla o agruparla en una búsqueda. Solo respondé con un JSON: {\"tags\": [\"tag1\", ...]}"],
                         ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                     ]
                 ]
@@ -280,14 +228,15 @@ class TagsViewModel: ObservableObject {
                let choices = json["choices"] as? [[String: Any]],
                let message = choices.first?["message"] as? [String: Any],
                let content = message["content"] as? String {
-                // Parse the structured JSON
+                // Parse tags JSON
                 let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let jsonStart = cleaned.firstIndex(of: "{"),
                    let jsonEnd = cleaned.lastIndex(of: "}") {
                     let jsonStr = String(cleaned[jsonStart...jsonEnd])
-                    if let fieldsData = jsonStr.data(using: .utf8),
-                       let fields = try? JSONDecoder().decode(PhotoFields.self, from: fieldsData) {
-                        return fields
+                    if let jsonData = jsonStr.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                       let tags = parsed["tags"] as? [String] {
+                        return tags
                     }
                 }
             }
@@ -297,46 +246,35 @@ class TagsViewModel: ObservableObject {
         return nil
     }
 
-    // MARK: - Search (structured filters)
+    // MARK: - Search (tag matching)
 
-    func searchWithFilters(_ filters: [SearchFilter], photoLibrary: PhotoLibraryService) -> [PHAsset] {
+    func searchByTerms(_ searchTerms: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
         guard let allPhotos = photoLibrary.allPhotos else { return [] }
 
         var results: [PHAsset] = []
 
-        Task { @MainActor in
-            DebugLogger.shared.log("SEARCH", "Filters: \(filters.map { "\($0.field):\($0.values.joined(separator: "|"))" }.joined(separator: " + "))")
-            DebugLogger.shared.log("SEARCH", "Index size: \(photoIndex.count)")
-        }
+        DebugLogger.shared.log("SEARCH", "Buscando: \(searchTerms.prefix(5).joined(separator: ", "))")
+        DebugLogger.shared.log("SEARCH", "Index: \(photoIndex.count)")
 
         for i in 0..<allPhotos.count {
             let asset = allPhotos.object(at: i)
             guard let indexed = photoIndex[asset.localIdentifier] else { continue }
 
-            let match = filters.allSatisfy { filter in
-                indexed.fields.matchesField(filter.field, values: filter.values)
+            let match = searchTerms.contains { term in
+                indexed.tags.contains { tag in
+                    tag.lowercased().contains(term.lowercased()) || term.lowercased().contains(tag.lowercased())
+                }
             }
 
             if match {
                 results.append(asset)
-                Task { @MainActor in
-                    DebugLogger.shared.log("SEARCH", "MATCH: [\(indexed.fields.escena)] \(indexed.fields.objetos.prefix(40))")
-                }
+                DebugLogger.shared.log("SEARCH", "MATCH: \(indexed.tags.prefix(5).joined(separator: ", "))")
                 if results.count >= 200 { break }
             }
         }
 
-        Task { @MainActor in
-            DebugLogger.shared.log("SEARCH", "Total: \(results.count) resultados")
-        }
-
+        DebugLogger.shared.log("SEARCH", "Total: \(results.count) resultados")
         return results
-    }
-
-    /// Legacy text search (fallback)
-    func search(tags searchTags: [String], photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        let filters = searchTags.map { SearchFilter(field: "escena", values: [$0]) }
-        return searchWithFilters(filters, photoLibrary: photoLibrary)
     }
 
     /// Search by GPS location
@@ -376,24 +314,27 @@ class TagsViewModel: ObservableObject {
 
     /// Category-based search
     func photosForCategory(_ category: PhotoCategory, photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        let filters: [SearchFilter]
+        let terms: [String]
         switch category {
         case .documents:
-            filters = [SearchFilter(field: "escena", values: ["documento", "captura", "pantalla", "texto", "papel", "libro", "recibo", "nota"])]
+            terms = ["documento", "captura", "pantalla", "texto", "papel", "libro", "recibo", "nota"]
         case .landscapes:
-            filters = [SearchFilter(field: "escena", values: ["paisaje", "natural", "montaña", "montana", "playa", "lago", "rio", "bosque", "atardecer", "amanecer"])]
+            terms = ["paisaje", "montaña", "montana", "playa", "lago", "rio", "bosque", "atardecer", "amanecer", "naturaleza"]
         default:
             return []
         }
-        return searchWithFilters(filters, photoLibrary: photoLibrary)
+        return searchByTerms(terms, photoLibrary: photoLibrary)
     }
 
     func photosForPeople(photoLibrary: PhotoLibraryService) -> [PHAsset] {
-        let filters = [SearchFilter(field: "personas", values: ["not_empty"])]
-        return searchWithFilters(filters, photoLibrary: photoLibrary)
+        return searchByTerms(["hombre", "mujer", "niño", "niña", "persona", "gente", "grupo", "bebé", "joven"], photoLibrary: photoLibrary)
     }
 
     var availableTags: [String] {
-        Array(photoIndex.values.prefix(50).map { $0.fields.escena })
+        var allTags: Set<String> = []
+        for photo in photoIndex.values.prefix(100) {
+            for tag in photo.tags { allTags.insert(tag) }
+        }
+        return Array(allTags).sorted()
     }
 }

@@ -8,9 +8,9 @@ struct GrokCommandResponse {
         case showDuplicates
         case showPhotos
         case tagPhotos
-        case searchByFilters([SearchFilter])
+        case searchByTerms([String])
         case searchByLocation(String)
-        case createAlbum(String, [SearchFilter])
+        case createAlbum(String, [String])
         case chat(String)
         case none
     }
@@ -47,37 +47,22 @@ actor GrokService {
             return GrokCommandResponse(action: .none, message: "API key no configurada.")
         }
 
-        // Send to Groq — structured search
+        // Send to Groq — search with synonyms
         let prompt = """
-        Sos el motor de búsqueda de Fotify. Las fotos están indexadas con campos: personas, lugar, objetos, escena, actividad, texto.
+        El usuario busca fotos con: "\(command)"
         El usuario es de ARGENTINA. Priorizá ubicaciones argentinas.
 
-        El usuario dice: "\(command)"
+        Extraé el concepto principal ignorando "fotos de/con/en", "mostrame", etc.
+        Determiná qué tipo de acción es y respondé con JSON (sin markdown, sin ```):
 
-        Respondé SOLO con este JSON (sin markdown, sin ```):
-        {"action": "search", "filters": [{"field": "campo", "values": ["valor1", "valor2"]}], "message": "respuesta"}
+        Si busca por contenido → {"action": "search", "search": ["palabra1", "sinónimo1", "sinónimo2", ...], "message": "respuesta"}
+        Si busca por ciudad/lugar/país → {"action": "location", "place": "Lugar, Provincia, Argentina", "message": "respuesta"}
+        Si pide crear carpeta/álbum → {"action": "create_album", "search": ["palabras clave"], "album": "nombre", "message": "respuesta"}
+        Si pide capturas → {"action": "screenshots", "message": "respuesta"}
+        Si pide duplicados → {"action": "duplicates", "message": "respuesta"}
+        Si es pregunta general → {"action": "chat", "message": "respuesta"}
 
-        Reglas de filters:
-        - field: personas, lugar, objetos, escena, actividad, texto
-        - Si busca personas, usá field "personas" con values ["not_empty"]
-        - values es un ARRAY con la palabra + sinónimos + variantes sin tildes + gerundios + plurales
-          Ejemplo: noche → values: ["noche", "nocturno", "oscuro", "nocturna"]
-          Ejemplo: montaña → values: ["montaña", "montana", "monte", "sierra", "cerro"]
-          Ejemplo: jugar → values: ["jugando", "juego", "jugar"]
-          Ejemplo: niños → values: ["niño", "nino", "niña", "nina", "chico", "nene"]
-        - Priorizá: escena > objetos > lugar > actividad
-        - Para búsquedas simples, usá UN solo filtro
-          "comida" → UN filtro en objetos: ["comida", "plato", "platos", "alimento"]
-          "capturas" → UN filtro en escena: ["captura", "screenshot", "pantalla"]
-
-        Reglas de action:
-        - "search": buscar en los campos indexados (lo más común)
-        - "location": si busca por ciudad/lugar/país. En filters poné [{"field":"lugar","values":["nombre completo con provincia y Argentina"]}]
-          "fotos en Padua" → action "location", filters: [{"field":"lugar","values":["Padua, Buenos Aires, Argentina"]}]
-        - "create_album": si pide crear carpeta/álbum. Mismo formato de filters.
-        - "screenshots": si pide capturas de pantalla
-        - "duplicates": si pide duplicados
-        - "chat": si es pregunta general
+        Para action "search": generá las palabras clave incluyendo sinónimos, variantes sin tildes, regionalismos y algún error de ortografía común. SIEMPRE al menos 5 palabras.
         """
 
         await DebugLogger.shared.log("GROQ", "Query: \"\(command)\"")
@@ -86,8 +71,8 @@ actor GrokService {
         let response = await sendChat(prompt: prompt)
 
         switch response.action {
-        case .searchByFilters(let filters):
-            await DebugLogger.shared.log("GROQ", "Action: search, filters: \(filters.map { "\($0.field):\($0.values.prefix(3))" })")
+        case .searchByTerms(let terms):
+            await DebugLogger.shared.log("GROQ", "Action: search, terms: \(terms.prefix(5))")
         case .searchByLocation(let place):
             await DebugLogger.shared.log("GROQ", "Action: location, lugar: \(place)")
         case .createAlbum(let name, let tags):
@@ -146,30 +131,11 @@ actor GrokService {
         return GrokCommandResponse(action: .none, message: "Sin respuesta")
     }
 
-    // MARK: - Filter Parsing
-
-    private func parseFilters(from json: [String: Any]) -> [SearchFilter] {
-        guard let filtersArray = json["filters"] as? [[String: Any]] else {
-            // Fallback: try old "tags" format
-            if let tags = json["tags"] as? [String] {
-                return tags.map { SearchFilter(field: "escena", values: [$0]) }
-            }
-            return []
-        }
-
-        return filtersArray.compactMap { filterDict in
-            guard let field = filterDict["field"] as? String,
-                  let values = filterDict["values"] as? [String] else { return nil }
-            return SearchFilter(field: field, values: values)
-        }
-    }
-
     // MARK: - Parsing
 
     private func parseCommandResponse(_ content: String) -> GrokCommandResponse {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Find JSON in response
         var jsonString = trimmed
         if let start = trimmed.firstIndex(of: "{"),
            let end = trimmed.lastIndex(of: "}") {
@@ -183,17 +149,16 @@ actor GrokService {
             return GrokCommandResponse(action: .chat(trimmed), message: trimmed)
         }
 
-        // Parse filters array
-        let filters = parseFilters(from: json)
+        let searchTerms = json["search"] as? [String] ?? json["tags"] as? [String] ?? []
 
         switch actionStr {
         case "search":
-            return GrokCommandResponse(action: .searchByFilters(filters), message: message)
+            return GrokCommandResponse(action: .searchByTerms(searchTerms), message: message)
         case "location":
-            let place = filters.first?.values.first ?? ""
+            let place = json["place"] as? String ?? searchTerms.first ?? ""
             return GrokCommandResponse(action: .searchByLocation(place), message: message)
         case "create_album":
-            return GrokCommandResponse(action: .createAlbum(message, filters), message: message)
+            return GrokCommandResponse(action: .createAlbum(json["album"] as? String ?? message, searchTerms), message: message)
         case "screenshots":
             return GrokCommandResponse(action: .showScreenshots, message: message)
         case "duplicates":

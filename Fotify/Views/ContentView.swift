@@ -385,19 +385,18 @@ struct SearchTab: View {
         withAnimation { aiMessage = response.message }
 
         switch response.action {
-        case .searchByFilters(let filters):
-            assets = tagsVM.searchWithFilters(filters, photoLibrary: photoLibrary)
+        case .searchByTerms(let terms):
+            assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
         case .searchByLocation(let place):
             assets = await tagsVM.searchByLocation(place: place, photoLibrary: photoLibrary)
-        case .createAlbum(let albumName, let filters):
-            assets = tagsVM.searchWithFilters(filters, photoLibrary: photoLibrary)
+        case .createAlbum(let albumName, let terms):
+            assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
             if !assets.isEmpty {
                 try? await photoLibrary.createAlbum(name: albumName, assets: assets)
                 withAnimation { aiMessage = "Álbum \"\(albumName)\" creado con \(assets.count) fotos" }
             }
         default:
-            let fallbackFilter = [SearchFilter(field: "escena", values: [searchText.lowercased()])]
-            assets = tagsVM.searchWithFilters(fallbackFilter, photoLibrary: photoLibrary)
+            assets = tagsVM.searchByTerms([searchText.lowercased()], photoLibrary: photoLibrary)
         }
 
         isSearching = false
