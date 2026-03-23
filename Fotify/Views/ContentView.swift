@@ -257,21 +257,55 @@ struct SearchTab: View {
 
                     // Results
                     if assets.isEmpty && searchText.isEmpty {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            Image(systemName: "sparkle.magnifyingglass")
-                                .font(.system(size: 48))
-                                .foregroundStyle(.purple.opacity(0.5))
-                            Text("Escribí qué querés buscar")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            Text("Usa lenguaje natural: \"fotos de comida\", \"playa\", \"mi perro\"")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary.opacity(0.7))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
+                        // Show live indexing feed
+                        if !tagsVM.recentDescriptions.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("INDEXANDO EN VIVO")
+                                    .font(.caption2.bold())
+                                    .kerning(2)
+                                    .foregroundStyle(.purple)
+                                    .padding(.horizontal, 20)
+
+                                ScrollView(showsIndicators: false) {
+                                    VStack(spacing: 8) {
+                                        ForEach(0..<tagsVM.recentDescriptions.count, id: \.self) { i in
+                                            let (desc, thumb) = tagsVM.recentDescriptions[i]
+                                            HStack(spacing: 10) {
+                                                if let img = thumb {
+                                                    Image(uiImage: img)
+                                                        .resizable()
+                                                        .scaledToFill()
+                                                        .frame(width: 44, height: 44)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                                }
+                                                Text(desc)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.white.opacity(0.8))
+                                                    .lineLimit(2)
+                                                Spacer()
+                                            }
+                                            .padding(.horizontal, 20)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Spacer()
+                            VStack(spacing: 12) {
+                                Image(systemName: "sparkle.magnifyingglass")
+                                    .font(.system(size: 48))
+                                    .foregroundStyle(.purple.opacity(0.5))
+                                Text("Escribí qué querés buscar")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                Text("Usa lenguaje natural: \"fotos de comida\", \"playa\", \"mi perro\"")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary.opacity(0.7))
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                            }
+                            Spacer()
                         }
-                        Spacer()
                     } else if assets.isEmpty && !searchText.isEmpty && !isSearching {
                         Spacer()
                         VStack(spacing: 12) {

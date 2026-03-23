@@ -21,6 +21,7 @@ class TagsViewModel: ObservableObject {
     @Published var state: State = .idle
     @Published var scannedCount: Int = 0
     @Published var totalCount: Int = 0
+    @Published var recentDescriptions: [(String, UIImage?)] = [] // last descriptions with thumbnails
 
     /// In-memory index: assetId → description
     private var descriptionIndex: [String: String] = [:]
@@ -84,24 +85,29 @@ class TagsViewModel: ObservableObject {
             let batch = Array(toScan[batchStart..<batchEnd])
 
             // Process batch concurrently (up to 5 at a time)
-            await withTaskGroup(of: (String, String?).self) { group in
+            await withTaskGroup(of: (String, String?, UIImage?).self) { group in
                 for asset in batch {
                     group.addTask {
                         guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 200, height: 200)),
                               let jpegData = image.jpegData(compressionQuality: 0.5) else {
-                            return (asset.localIdentifier, nil)
+                            return (asset.localIdentifier, nil, nil)
                         }
 
                         let base64 = jpegData.base64EncodedString()
                         let description = await self.describeWithLlama(base64Image: base64)
-                        return (asset.localIdentifier, description)
+                        return (asset.localIdentifier, description, image)
                     }
                 }
 
-                for await (assetId, description) in group {
+                for await (assetId, description, thumb) in group {
                     if let desc = description {
                         descriptionIndex[assetId] = desc
                         scannedCount = descriptionIndex.count
+                        // Keep last 10 descriptions for live feed
+                        recentDescriptions.insert((desc, thumb), at: 0)
+                        if recentDescriptions.count > 10 {
+                            recentDescriptions.removeLast()
+                        }
                     }
                 }
             }
