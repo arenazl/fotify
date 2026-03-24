@@ -5,10 +5,11 @@ struct PhotoMeshView: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @State private var groupedByMonth: [(String, [PHAsset])] = []
     @State private var isLoading = true
+    @State private var selectedPhoto: (assets: [PHAsset], index: Int)?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 30) {
+            VStack(spacing: 20) {
                 if isLoading {
                     ProgressView("Organizando fotos...")
                         .tint(.white)
@@ -16,13 +17,19 @@ struct PhotoMeshView: View {
                 } else if groupedByMonth.isEmpty {
                     emptyState
                 } else {
-                    // Photo groups by month
                     ForEach(groupedByMonth, id: \.0) { month, assets in
                         monthSection(month: month, assets: assets)
                     }
                 }
             }
             .padding(.top, 10)
+        }
+        .fullScreenCover(item: Binding(
+            get: { selectedPhoto.map { SelectedPhotoWrapper(assets: $0.assets, index: $0.index) } },
+            set: { selectedPhoto = $0.map { ($0.assets, $0.index) } }
+        )) { wrapper in
+            PhotoViewer(initialIndex: wrapper.index, fetchResult: nil, assets: wrapper.assets)
+                .environmentObject(photoLibrary)
         }
         .task {
             await groupPhotos()
@@ -42,24 +49,16 @@ struct PhotoMeshView: View {
                 Text("\(assets.count) fotos")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-
-                if assets.count > 3 {
-                    Text("IA: agrupar")
-                        .font(.caption2)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.purple.opacity(0.2))
-                        .clipShape(Capsule())
-                        .foregroundStyle(.purple)
-                }
             }
             .padding(.horizontal, 24)
 
-            // Horizontal gallery
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(0..<min(assets.count, 20), id: \.self) { index in
                         MeshPhotoCell(asset: assets[index])
+                            .onTapGesture {
+                                selectedPhoto = (assets: assets, index: index)
+                            }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -107,7 +106,6 @@ struct PhotoMeshView: View {
             groups[key, default: []].append(asset)
         }
 
-        // Sort by most recent first
         let sorted = groups.sorted { pair1, pair2 in
             let date1 = pair1.value.first?.creationDate ?? .distantPast
             let date2 = pair2.value.first?.creationDate ?? .distantPast
@@ -117,6 +115,14 @@ struct PhotoMeshView: View {
         groupedByMonth = sorted
         isLoading = false
     }
+}
+
+// MARK: - Selected Photo Wrapper (for fullScreenCover)
+
+struct SelectedPhotoWrapper: Identifiable {
+    let id = UUID()
+    let assets: [PHAsset]
+    let index: Int
 }
 
 // MARK: - Mesh Photo Cell
@@ -149,7 +155,6 @@ struct MeshPhotoCell: View {
                     .stroke(.white.opacity(0.08), lineWidth: 0.5)
             )
 
-            // Badge for screenshots
             if asset.mediaSubtypes.contains(.photoScreenshot) {
                 Image(systemName: "rectangle.dashed")
                     .font(.caption2)

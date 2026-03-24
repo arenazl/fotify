@@ -10,6 +10,7 @@ struct CleanupView: View {
     var initialTab: CleanupTab?
     @State private var selectedScreenshots: Set<Int> = []
     @State private var showDeleteConfirmation = false
+    @State private var showDeleteDuplicatesConfirmation = false
     @State private var isVaporizing = false
 
     enum CleanupTab: Hashable {
@@ -104,6 +105,18 @@ struct CleanupView: View {
         } message: {
             Text("iOS te pedirá confirmación. No se puede deshacer.")
         }
+        .confirmationDialog(
+            "Eliminar \(duplicatesVM.duplicateGroups.flatMap { $0 }.count - duplicatesVM.duplicateGroups.count) duplicados",
+            isPresented: $showDeleteDuplicatesConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Vaporizar duplicados", role: .destructive) {
+                Task { await vaporizeDuplicates() }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se mantiene 1 foto de cada grupo y se eliminan las copias. iOS te pedirá confirmación.")
+        }
         .onAppear {
             if let initialTab {
                 selectedTab = initialTab
@@ -154,10 +167,24 @@ struct CleanupView: View {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
                             ForEach(Array(duplicatesVM.duplicateGroups.enumerated()), id: \.offset) { groupIdx, group in
-                                DuplicateGroupCard(group: group, groupIndex: groupIdx)
+                                DuplicateGroupCard(
+                                    group: group,
+                                    groupIndex: groupIdx,
+                                    onDeleteDuplicates: { assets in
+                                        Task {
+                                            try? await photoLibrary.deleteAssets(assets)
+                                            await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary)
+                                        }
+                                    }
+                                )
                             }
                         }
                         .padding(.horizontal, 20)
+                    }
+
+                    // Delete all duplicates button
+                    vaporizeButton {
+                        showDeleteDuplicatesConfirmation = true
                     }
                 }
             }
@@ -249,6 +276,23 @@ struct CleanupView: View {
         }
     }
 
+    private func vaporizeDuplicates() async {
+        isVaporizing = true
+        // Keep first photo of each group, delete the rest
+        var toDelete: [PHAsset] = []
+        for group in duplicatesVM.duplicateGroups {
+            if group.count > 1 {
+                toDelete.append(contentsOf: Array(group.dropFirst()))
+            }
+        }
+        if !toDelete.isEmpty {
+            try? await photoLibrary.deleteAssets(toDelete)
+            await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary)
+        }
+        vaporizeProgress = 0
+        isVaporizing = false
+    }
+
     private func vaporizeScreenshots() async {
         guard let screenshots = photoLibrary.screenshots else { return }
         isVaporizing = true
@@ -312,6 +356,7 @@ struct CleanupPhotoCell: View {
 struct DuplicateGroupCard: View {
     let group: [PHAsset]
     let groupIndex: Int
+    var onDeleteDuplicates: (([PHAsset]) -> Void)?
     @EnvironmentObject var photoLibrary: PhotoLibraryService
 
     var body: some View {
@@ -325,13 +370,38 @@ struct DuplicateGroupCard: View {
                 Text("\(group.count) copias")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if group.count > 1 {
+                    Button {
+                        onDeleteDuplicates?(Array(group.dropFirst()))
+                    } label: {
+                        Text("Limpiar")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.red.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(0..<group.count, id: \.self) { index in
-                        MeshPhotoCell(asset: group[index])
-                            .frame(width: 100, height: 100)
+                        VStack(spacing: 4) {
+                            CleanupPhotoCell(asset: group[index], isSelected: false)
+                                .frame(width: 100, height: 100)
+                            if index == 0 {
+                                Text("ORIGINAL")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.green)
+                            } else {
+                                Text("COPIA")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.red)
+                            }
+                        }
                     }
                 }
             }
