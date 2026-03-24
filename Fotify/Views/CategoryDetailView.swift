@@ -183,17 +183,13 @@ struct CategoryDetailView: View {
                 }
             } else {
                 ForEach(0..<assets.count, id: \.self) { index in
-                    PhotoGridCell(asset: assets[index])
-                        .onTapGesture { selectedIndex = index }
-                        .if(category == .people) { view in
-                            view.contextMenu {
-                                Button {
-                                    faceMatchAsset = assets[index]
-                                } label: {
-                                    Label("Identificar persona", systemImage: "person.crop.rectangle")
-                                }
-                            }
-                        }
+                    if category == .people {
+                        PhotoGridCell(asset: assets[index])
+                            .onTapGesture { faceMatchAsset = assets[index] }
+                    } else {
+                        PhotoGridCell(asset: assets[index])
+                            .onTapGesture { selectedIndex = index }
+                    }
                 }
             }
         }

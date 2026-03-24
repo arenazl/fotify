@@ -32,7 +32,8 @@ class TagsViewModel: ObservableObject {
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 7 // force spanish tags // free tags
+    static let schemaVersion = 7
+    private var currentSchemaVersion: Int { Self.schemaVersion } // force spanish tags // free tags
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")

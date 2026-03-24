@@ -444,9 +444,11 @@ struct SettingsTab: View {
 
                         // App info
                         VStack(spacing: 8) {
-                            Text("Fotify v1.6")
+                            Text("Fotify v1.7 (build 7)")
                                 .font(.caption).foregroundStyle(.secondary)
                             Text("IA: Llama 4 Scout via Groq")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text("Schema: \(TagsViewModel.schemaVersion)")
                                 .font(.caption2).foregroundStyle(.secondary)
                             if Config.debugMode {
                                 Text("DEBUG MODE")
