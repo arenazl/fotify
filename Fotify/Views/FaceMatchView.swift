@@ -232,11 +232,15 @@ struct FaceMatchView: View {
         debugLog.append("Buscando fotos con personas en el índice...")
 
         // Get all photos that have person-related tags
-        let personTerms = ["hombre", "mujer", "persona", "niño", "niña", "gente", "grupo", "joven", "adulto", "bebé", "chico", "chica", "nene", "nena"]
-        let candidates = tagsVM.searchByTerms(personTerms, photoLibrary: photoLibrary)
+        let personTerms = ["hombre", "mujer", "persona", "niño", "niña", "gente", "grupo", "joven", "adulto", "bebé", "chico", "chica", "nene", "nena", "selfie", "retrato"]
+        let rawCandidates = tagsVM.searchByTerms(personTerms, photoLibrary: photoLibrary)
+
+        // Deduplicate
+        var seen: Set<String> = []
+        let candidates = rawCandidates.filter { seen.insert($0.localIdentifier).inserted }
 
         totalCandidates = candidates.count
-        debugLog.append("Encontradas \(totalCandidates) fotos con personas")
+        debugLog.append("Encontradas \(totalCandidates) fotos con personas (dedup)")
 
         guard let refImage = referenceImage,
               let refJpeg = refImage.jpegData(compressionQuality: 0.4) else {
@@ -276,7 +280,7 @@ struct FaceMatchView: View {
                 for await (asset, isMatch) in group {
                     checkedCount += 1
                     searchProgress = Double(checkedCount) / Double(totalCandidates)
-                    if isMatch {
+                    if isMatch && !matchedAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) {
                         matchedAssets.append(asset)
                         debugLog.append("MATCH #\(matchedAssets.count)")
                     }
