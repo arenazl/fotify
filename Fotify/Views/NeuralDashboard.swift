@@ -116,5 +116,3 @@ struct CategoryCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 }
-
-}
