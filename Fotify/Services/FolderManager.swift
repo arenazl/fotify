@@ -21,6 +21,29 @@ class FolderManager: ObservableObject {
         save()
     }
 
+    func updateFolder(_ folder: CustomFolder) {
+        if let idx = folders.firstIndex(where: { $0.id == folder.id }) {
+            folders[idx] = folder
+            save()
+        }
+    }
+
+    /// Refresh all dynamic folders with new photos
+    func refreshFolders(tagsVM: TagsViewModel, photoLibrary: PhotoLibraryService) {
+        for i in 0..<folders.count {
+            var folder = folders[i]
+            let results = tagsVM.searchByTerms(folder.searchTerms, photoLibrary: photoLibrary)
+            let newIds = results.map { $0.localIdentifier }
+            let addedIds = newIds.filter { !folder.matchedAssetIds.contains($0) }
+            if !addedIds.isEmpty {
+                folder.matchedAssetIds.append(contentsOf: addedIds)
+                folder.lastUpdated = Date()
+                folders[i] = folder
+            }
+        }
+        save()
+    }
+
     // MARK: - Keychain Persistence
 
     private func save() {

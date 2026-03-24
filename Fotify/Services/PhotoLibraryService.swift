@@ -10,12 +10,27 @@ struct CustomFolder: Codable, Identifiable, Hashable {
     let name: String
     let searchTerms: [String]
     let createdAt: Date
+    var matchedAssetIds: [String]
+    var lastUpdated: Date
 
     init(name: String, searchTerms: [String]) {
         self.id = UUID().uuidString
         self.name = name
         self.searchTerms = searchTerms
         self.createdAt = Date()
+        self.matchedAssetIds = []
+        self.lastUpdated = Date()
+    }
+
+    // For backward compatibility with folders that don't have these fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        searchTerms = try container.decode([String].self, forKey: .searchTerms)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        matchedAssetIds = try container.decodeIfPresent([String].self, forKey: .matchedAssetIds) ?? []
+        lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? createdAt
     }
 }
 

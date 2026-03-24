@@ -93,7 +93,11 @@ struct ContentView: View {
         .tint(.purple)
         .task {
             tagsVM.loadPersistedTags()
+            // Refresh dynamic folders with existing index
+            folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
             await tagsVM.backgroundScan(photoLibrary: photoLibrary)
+            // Refresh again after scan completes (new photos indexed)
+            folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
         }
     }
 }
