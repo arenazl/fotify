@@ -52,6 +52,7 @@ struct CategoryDetailView: View {
     @State private var selectedIndex: Int?
     @State private var gridSize: GridSize = .medium
     @State private var groupBy: GroupBy = .none
+    @State private var faceMatchAsset: PHAsset?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 1), count: gridSize.columnCount)
@@ -130,6 +131,14 @@ struct CategoryDetailView: View {
             )
             .environmentObject(photoLibrary)
         }
+        .sheet(item: $faceMatchAsset) { asset in
+            FaceMatchView(
+                referenceAsset: asset,
+                tagsVM: tagsVM,
+                folderManager: FolderManager()
+            )
+            .environmentObject(photoLibrary)
+        }
         .task {
             await loadContent()
         }
@@ -176,6 +185,15 @@ struct CategoryDetailView: View {
                 ForEach(0..<assets.count, id: \.self) { index in
                     PhotoGridCell(asset: assets[index])
                         .onTapGesture { selectedIndex = index }
+                        .if(category == .people) { view in
+                            view.contextMenu {
+                                Button {
+                                    faceMatchAsset = assets[index]
+                                } label: {
+                                    Label("Identificar persona", systemImage: "person.crop.rectangle")
+                                }
+                            }
+                        }
                 }
             }
         }
@@ -300,8 +318,25 @@ struct CategoryDetailView: View {
 
 // MARK: - Int Identifiable for fullScreenCover
 
+// MARK: - Conditional Modifier
+
+extension View {
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
 extension Int: @retroactive Identifiable {
     public var id: Int { self }
+}
+
+extension PHAsset: @retroactive Identifiable {
+    public var id: String { localIdentifier }
 }
 
 // MARK: - Photo Grid Cell (iOS Photos style)

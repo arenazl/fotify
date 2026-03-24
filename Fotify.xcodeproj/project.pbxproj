@@ -22,6 +22,7 @@
 		A1000015 /* DebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
 		A1000016 /* FolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000017 /* CreateFolderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
+		A1000018 /* FaceMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 		A2000015 /* DebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogger.swift; sourceTree = "<group>"; };
 		A2000016 /* FolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderManager.swift; sourceTree = "<group>"; };
 		A2000017 /* CreateFolderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateFolderView.swift; sourceTree = "<group>"; };
+		A2000018 /* FaceMatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceMatchView.swift; sourceTree = "<group>"; };
 		A3000001 /* Fotify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fotify.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -85,6 +87,7 @@
 				A2000005 /* CleanupView.swift */,
 			A2000014 /* CategoryDetailView.swift */,
 			A2000017 /* CreateFolderView.swift */,
+		A2000018 /* FaceMatchView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -197,6 +200,7 @@
 				A1000015 /* DebugLogger.swift in Sources */,
 				A1000016 /* FolderManager.swift in Sources */,
 				A1000017 /* CreateFolderView.swift in Sources */,
+				A1000018 /* FaceMatchView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
