@@ -19,6 +19,8 @@ struct FaceMatchView: View {
     @State private var debugLog: [String] = []
     @State private var selectedIndex: Int?
     @State private var folderCreated = false
+    @State private var isSelecting = false
+    @State private var selectedToRemove: Set<String> = [] // asset IDs to remove
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
@@ -87,13 +89,59 @@ struct FaceMatchView: View {
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.white)
                                 Spacer()
+
+                                if isSelecting && !selectedToRemove.isEmpty {
+                                    Button {
+                                        matchedAssets.removeAll { selectedToRemove.contains($0.localIdentifier) }
+                                        selectedToRemove.removeAll()
+                                        isSelecting = false
+                                    } label: {
+                                        Text("Quitar (\(selectedToRemove.count))")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.red)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 6)
+                                            .background(.red.opacity(0.15))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+
+                                Button {
+                                    isSelecting.toggle()
+                                    if !isSelecting { selectedToRemove.removeAll() }
+                                } label: {
+                                    Text(isSelecting ? "Listo" : "Seleccionar")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.purple)
+                                }
                             }
                             .padding(.horizontal, 20)
 
                             LazyVGrid(columns: columns, spacing: 2) {
                                 ForEach(0..<matchedAssets.count, id: \.self) { index in
-                                    PhotoGridCell(asset: matchedAssets[index])
-                                        .onTapGesture { selectedIndex = index }
+                                    let asset = matchedAssets[index]
+                                    ZStack(alignment: .topTrailing) {
+                                        PhotoGridCell(asset: asset)
+
+                                        if isSelecting {
+                                            Image(systemName: selectedToRemove.contains(asset.localIdentifier) ? "xmark.circle.fill" : "circle")
+                                                .font(.title3)
+                                                .foregroundStyle(selectedToRemove.contains(asset.localIdentifier) ? .red : .white.opacity(0.5))
+                                                .shadow(radius: 3)
+                                                .padding(6)
+                                        }
+                                    }
+                                    .onTapGesture {
+                                        if isSelecting {
+                                            if selectedToRemove.contains(asset.localIdentifier) {
+                                                selectedToRemove.remove(asset.localIdentifier)
+                                            } else {
+                                                selectedToRemove.insert(asset.localIdentifier)
+                                            }
+                                        } else {
+                                            selectedIndex = index
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 2)
