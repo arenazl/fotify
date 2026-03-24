@@ -92,11 +92,33 @@ struct ContentView: View {
         }
         .tint(.purple)
         .task {
+            // Log device state
+            DebugLogger.shared.log("APP", "=== FOTIFY v1.7.1 INICIO ===")
+            DebugLogger.shared.log("APP", "Total fotos: \(photoLibrary.photoCount)")
+            DebugLogger.shared.log("APP", "Capturas: \(photoLibrary.screenshotCount)")
+            DebugLogger.shared.log("APP", "Favoritos: \(photoLibrary.favoritesCount)")
+            DebugLogger.shared.log("APP", "Videos: \(photoLibrary.videosCount)")
+            DebugLogger.shared.log("APP", "Selfies: \(photoLibrary.selfiesCount)")
+            DebugLogger.shared.log("APP", "Live Photos: \(photoLibrary.livePhotosCount)")
+
             tagsVM.loadPersistedTags()
-            // Refresh dynamic folders with existing index
+            DebugLogger.shared.log("APP", "Tags cargados: \(tagsVM.scannedCount)")
+            DebugLogger.shared.log("APP", "Schema: \(TagsViewModel.schemaVersion)")
+            DebugLogger.shared.log("APP", "Carpetas: \(folderManager.folders.count)")
+            folderManager.folders.forEach { f in
+                DebugLogger.shared.log("APP", "  📁 \(f.name) (\(f.searchTerms.joined(separator: ", ")))")
+            }
+
+            // Refresh dynamic folders
             folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
+            DebugLogger.shared.log("APP", "Carpetas actualizadas")
+
+            // Continue indexing
+            DebugLogger.shared.log("APP", "Iniciando scan background...")
             await tagsVM.backgroundScan(photoLibrary: photoLibrary)
-            // Refresh again after scan completes (new photos indexed)
+            DebugLogger.shared.log("APP", "Scan completo. Indexadas: \(tagsVM.scannedCount)")
+
+            // Refresh again
             folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
         }
     }
@@ -136,6 +158,7 @@ struct CortexTab: View {
                 }
             }
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .debugToolbar()
             .navigationDestination(for: PhotoCategory.self) { category in
                 CategoryDetailView(category: category, tagsVM: tagsVM)
             }
@@ -194,6 +217,7 @@ struct MeshTab: View {
             .navigationTitle("Biblioteca")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .debugToolbar()
         }
     }
 }
@@ -211,6 +235,7 @@ struct PurgeTab: View {
             .navigationTitle("Limpieza")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .debugToolbar()
         }
     }
 }
