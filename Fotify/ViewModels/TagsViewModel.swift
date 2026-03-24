@@ -32,7 +32,7 @@ class TagsViewModel: ObservableObject {
 
     private let keychainService = "com.fotify.descriptions"
     private let keychainAccount = "photo_descriptions"
-    private let currentSchemaVersion = 6 // free tags
+    private let currentSchemaVersion = 7 // force spanish tags // free tags
 
     func loadPersistedTags() {
         let savedVersion = UserDefaults.standard.integer(forKey: "fotify_schema_version")
@@ -192,12 +192,12 @@ class TagsViewModel: ObservableObject {
                 [
                     "role": "user",
                     "content": [
-                        ["type": "text", "text": "Analizá esta foto y generá los 15 tags más importantes para poder encontrarla o agruparla en una búsqueda. Solo respondé con un JSON: {\"tags\": [\"tag1\", ...]}"],
+                        ["type": "text", "text": "Analizá esta foto y generá los 15 tags más importantes para poder encontrarla o agruparla en una búsqueda. Todos los tags en español. Solo respondé con un JSON: {\"tags\": [\"tag1\", ...]}"],
                         ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
                     ]
                 ]
             ],
-            "max_tokens": 200,
+            "max_tokens": 400,
             "temperature": 0.1
         ]
 
