@@ -135,8 +135,6 @@ struct CortexTab: View {
                     .padding(.top, 10)
                 }
             }
-            .navigationTitle("FOTIFY")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .navigationDestination(for: PhotoCategory.self) { category in
                 CategoryDetailView(category: category, tagsVM: tagsVM)
@@ -151,13 +149,21 @@ struct CortexTab: View {
     }
 
     private var cortexHeader: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Cortex v.32")
-                    .font(.system(size: 28, weight: .thin))
-                    .foregroundColor(.white)
-            }
+        HStack(spacing: 10) {
+            Image(systemName: "camera.aperture")
+                .font(.title2)
+                .foregroundStyle(.purple)
+
+            Text("Fotify")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundColor(.white)
+
+            Text("v1.7")
+                .font(.system(size: 14, weight: .light))
+                .foregroundColor(.secondary)
+
             Spacer()
+
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(spacing: 6) {
                     Circle().fill(.green).frame(width: 6, height: 6)
