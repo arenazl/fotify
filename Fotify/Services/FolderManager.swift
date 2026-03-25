@@ -73,7 +73,20 @@ class FolderManager: ObservableObject {
     }
 
     func addFolder(_ folder: CustomFolder) {
-        folders.append(folder)
+        // If a folder with the same name exists, update it instead of duplicating
+        if let idx = folders.firstIndex(where: { $0.name.lowercased() == folder.name.lowercased() }) {
+            var existing = folders[idx]
+            // Merge asset IDs (keep existing + add new)
+            let existingIds = Set(existing.matchedAssetIds)
+            let newIds = folder.matchedAssetIds.filter { !existingIds.contains($0) }
+            existing.matchedAssetIds.append(contentsOf: newIds)
+            existing.lastUpdated = Date()
+            if existing.referenceAssetId == nil { existing.referenceAssetId = folder.referenceAssetId }
+            if !existing.isPerson && folder.isPerson { existing.isPerson = true }
+            folders[idx] = existing
+        } else {
+            folders.append(folder)
+        }
         save()
     }
 
