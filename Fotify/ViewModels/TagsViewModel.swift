@@ -261,11 +261,11 @@ class TagsViewModel: ObservableObject {
             let asset = allPhotos.object(at: i)
             guard let indexed = photoIndex[asset.localIdentifier] else { continue }
 
-            let match = searchTerms.contains { term in
-                indexed.tags.contains { tag in
-                    tag.lowercased().contains(term.lowercased()) || term.lowercased().contains(tag.lowercased())
-                }
-            }
+            // Exact word matching — all intelligence is in Groq's synonyms
+            let searchWords = Set(searchTerms.map { $0.lowercased() })
+            let tagWords = Set(indexed.tags.map { $0.lowercased() })
+
+            let match = !searchWords.isDisjoint(with: tagWords)
 
             if match {
                 results.append(asset)
