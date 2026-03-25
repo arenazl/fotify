@@ -12,6 +12,9 @@ struct CustomFolder: Codable, Identifiable, Hashable {
     let createdAt: Date
     var matchedAssetIds: [String]
     var lastUpdated: Date
+    var isPerson: Bool
+    var referenceAssetId: String?
+    var lastScannedIndex: Int
 
     init(name: String, searchTerms: [String]) {
         self.id = UUID().uuidString
@@ -20,9 +23,23 @@ struct CustomFolder: Codable, Identifiable, Hashable {
         self.createdAt = Date()
         self.matchedAssetIds = []
         self.lastUpdated = Date()
+        self.isPerson = false
+        self.referenceAssetId = nil
+        self.lastScannedIndex = 0
     }
 
-    // For backward compatibility with folders that don't have these fields
+    init(personName: String, referenceAssetId: String, matchedIds: [String]) {
+        self.id = UUID().uuidString
+        self.name = personName
+        self.searchTerms = []
+        self.createdAt = Date()
+        self.matchedAssetIds = matchedIds
+        self.lastUpdated = Date()
+        self.isPerson = true
+        self.referenceAssetId = referenceAssetId
+        self.lastScannedIndex = 0
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -31,6 +48,9 @@ struct CustomFolder: Codable, Identifiable, Hashable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         matchedAssetIds = try container.decodeIfPresent([String].self, forKey: .matchedAssetIds) ?? []
         lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? createdAt
+        isPerson = try container.decodeIfPresent(Bool.self, forKey: .isPerson) ?? false
+        referenceAssetId = try container.decodeIfPresent(String.self, forKey: .referenceAssetId)
+        lastScannedIndex = try container.decodeIfPresent(Int.self, forKey: .lastScannedIndex) ?? 0
     }
 }
 

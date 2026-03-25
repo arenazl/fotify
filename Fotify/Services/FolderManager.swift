@@ -1,4 +1,58 @@
 import SwiftUI
+import Photos
+
+// MARK: - Face Comparer (shared utility)
+
+enum FaceComparer {
+    static func compare(ref: String, candidate: String) async -> Bool {
+        let requestBody: [String: Any] = [
+            "model": Config.groqVisionModel,
+            "messages": [[
+                "role": "user",
+                "content": [
+                    ["type": "text", "text": "Son la misma persona en estas dos fotos? Solo responde JSON: {\"match\": true} o {\"match\": false}"],
+                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(ref)"]],
+                    ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(candidate)"]]
+                ]
+            ]],
+            "max_tokens": 50,
+            "temperature": 0.1
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody),
+              let url = URL(string: "https://api.groq.com/openai/v1/chat/completions") else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(Config.groqAPIKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = jsonData
+        request.timeoutInterval = 30
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 429 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                return await compare(ref: ref, candidate: candidate)
+            }
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let msg = choices.first?["message"] as? [String: Any],
+               let content = msg["content"] as? String {
+                let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let s = cleaned.firstIndex(of: "{"), let e = cleaned.lastIndex(of: "}") {
+                    let jsonStr = String(cleaned[s...e])
+                    if let d = jsonStr.data(using: .utf8),
+                       let parsed = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                       let match = parsed["match"] as? Bool {
+                        return match
+                    }
+                }
+            }
+        } catch {}
+        return false
+    }
+}
 
 @MainActor
 class FolderManager: ObservableObject {
@@ -28,10 +82,11 @@ class FolderManager: ObservableObject {
         }
     }
 
-    /// Refresh all dynamic folders with new photos
+    /// Refresh tag-based folders with new photos
     func refreshFolders(tagsVM: TagsViewModel, photoLibrary: PhotoLibraryService) {
         for i in 0..<folders.count {
             var folder = folders[i]
+            guard !folder.isPerson && !folder.searchTerms.isEmpty else { continue }
             let results = tagsVM.searchByTerms(folder.searchTerms, photoLibrary: photoLibrary)
             let newIds = results.map { $0.localIdentifier }
             let addedIds = newIds.filter { !folder.matchedAssetIds.contains($0) }
@@ -43,6 +98,71 @@ class FolderManager: ObservableObject {
         }
         save()
     }
+
+    /// Background scan: compare unscanned photos against person folders
+    func backgroundPersonScan(photoLibrary: PhotoLibraryService) async {
+        let personFolders = folders.filter { $0.isPerson && $0.referenceAssetId != nil }
+        guard !personFolders.isEmpty, let allPhotos = photoLibrary.allPhotos else { return }
+
+        // Get all person-tagged photos (search by person terms in tags)
+        // For now, scan ALL photos with faces progressively
+        let personTerms = ["hombre", "mujer", "persona", "niño", "niña", "gente", "grupo", "joven", "adulto", "bebé", "chico", "chica", "nene", "nena", "selfie", "retrato"]
+
+        for folderIdx in 0..<folders.count {
+            guard folders[folderIdx].isPerson,
+                  let refAssetId = folders[folderIdx].referenceAssetId else { continue }
+
+            // Get reference image
+            guard let refImage = await photoLibrary.thumbnail(for: findAsset(id: refAssetId, in: allPhotos), size: CGSize(width: 200, height: 200)),
+                  let refJpeg = refImage.jpegData(compressionQuality: 0.4) else { continue }
+            let refBase64 = refJpeg.base64EncodedString()
+
+            let startIdx = folders[folderIdx].lastScannedIndex
+            let existingIds = Set(folders[folderIdx].matchedAssetIds)
+            var newMatches: [String] = []
+            let batchSize = 10
+            var scanned = 0
+
+            // Scan 50 photos per app launch (not all at once)
+            let maxPerLaunch = 50
+
+            for i in startIdx..<allPhotos.count {
+                let asset = allPhotos.object(at: i)
+                if existingIds.contains(asset.localIdentifier) { continue }
+
+                if let img = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 150, height: 150)),
+                   let jpeg = img.jpegData(compressionQuality: 0.3) {
+                    let candidateBase64 = jpeg.base64EncodedString()
+                    let isMatch = await FaceComparer.compare(ref: refBase64, candidate: candidateBase64)
+                    if isMatch {
+                        newMatches.append(asset.localIdentifier)
+                        await DebugLogger.shared.log("FACE", "BG match para \(folders[folderIdx].name)")
+                    }
+                }
+
+                scanned += 1
+                folders[folderIdx].lastScannedIndex = i + 1
+
+                if scanned >= maxPerLaunch { break }
+            }
+
+            if !newMatches.isEmpty {
+                folders[folderIdx].matchedAssetIds.append(contentsOf: newMatches)
+                folders[folderIdx].lastUpdated = Date()
+                await DebugLogger.shared.log("FACE", "BG: +\(newMatches.count) fotos de \(folders[folderIdx].name)")
+            }
+        }
+        save()
+    }
+
+    private func findAsset(id: String, in fetchResult: PHFetchResult<PHAsset>) -> PHAsset {
+        for i in 0..<fetchResult.count {
+            let asset = fetchResult.object(at: i)
+            if asset.localIdentifier == id { return asset }
+        }
+        return fetchResult.firstObject!
+    }
+
 
     // MARK: - Keychain Persistence
 

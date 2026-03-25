@@ -230,10 +230,12 @@ struct CreateFolderView: View {
         debugLog.append("QUERY: \"\(searchText)\"")
         debugLog.append("INDEX: \(tagsVM.scannedCount) fotos indexadas")
 
+        let taggedPersons = folderManager.folders.filter { $0.isPerson }.map { $0.name }
         let response = await GrokService.shared.processCommand(
             searchText,
             photoLibrary: photoLibrary,
-            availableTags: tagsVM.availableTags
+            availableTags: tagsVM.availableTags,
+            taggedPersons: taggedPersons
         )
 
         debugLog.append("GROQ ACTION: \(response.message)")
@@ -255,6 +257,57 @@ struct CreateFolderView: View {
             debugLog.append("LOCATION: \"\(place)\"")
             assets = await tagsVM.searchByLocation(place: place, photoLibrary: photoLibrary)
             debugLog.append("GPS RESULTS: \(assets.count) fotos")
+        case .personSearch(let person, let contextTags):
+            debugLog.append("PERSON: \"\(person)\", contexto: \(contextTags)")
+            // Find the person folder
+            if let personFolder = folderManager.folders.first(where: { $0.isPerson && $0.name.lowercased() == person.lowercased() }) {
+                let personIds = Set(personFolder.matchedAssetIds)
+                debugLog.append("PERSON IDs: \(personIds.count) fotos de \(person)")
+
+                if contextTags.isEmpty {
+                    // Just show person's photos
+                    guard let allPhotos = photoLibrary.allPhotos else { break }
+                    for i in 0..<allPhotos.count {
+                        let asset = allPhotos.object(at: i)
+                        if personIds.contains(asset.localIdentifier) {
+                            assets.append(asset)
+                        }
+                    }
+                } else {
+                    // Cross: person IDs ∩ context tags
+                    let tagResults = tagsVM.searchByTerms(contextTags, photoLibrary: photoLibrary)
+                    debugLog.append("TAG RESULTS: \(tagResults.count) fotos con \(contextTags.prefix(3))")
+                    assets = tagResults.filter { personIds.contains($0.localIdentifier) }
+                    debugLog.append("INTERSECCIÓN: \(assets.count) fotos de \(person) + contexto")
+
+                    // If intersection is small, also search by face in tag results
+                    if assets.count < 5 && tagResults.count > 0 && tagResults.count <= 200 {
+                        debugLog.append("FACE SEARCH: comparando \(tagResults.count) fotos por cara")
+                        // Compare face against tag results that aren't already matched
+                        if let refId = personFolder.referenceAssetId {
+                            guard let refImg = await photoLibrary.thumbnail(for: findAsset(refId), size: CGSize(width: 200, height: 200)),
+                                  let refJpeg = refImg.jpegData(compressionQuality: 0.4) else { break }
+                            let refBase64 = refJpeg.base64EncodedString()
+                            let existingIds = Set(assets.map { $0.localIdentifier })
+
+                            for candidate in tagResults where !existingIds.contains(candidate.localIdentifier) {
+                                if let img = await photoLibrary.thumbnail(for: candidate, size: CGSize(width: 150, height: 150)),
+                                   let jpeg = img.jpegData(compressionQuality: 0.3) {
+                                    let isMatch = await FaceComparer.compare(ref: refBase64, candidate: jpeg.base64EncodedString())
+                                    if isMatch {
+                                        assets.append(candidate)
+                                        debugLog.append("FACE MATCH en contexto!")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                searchTerms = contextTags
+                debugLog.append("TOTAL: \(assets.count) fotos")
+            } else {
+                debugLog.append("ERROR: persona \"\(person)\" no tagueada")
+            }
         default:
             searchTerms = [searchText.lowercased()]
             debugLog.append("FALLBACK: buscando \"\(searchText)\"")
@@ -263,6 +316,15 @@ struct CreateFolderView: View {
         }
 
         isSearching = false
+    }
+
+    private func findAsset(_ id: String) -> PHAsset {
+        guard let all = photoLibrary.allPhotos else { return PHAsset() }
+        for i in 0..<all.count {
+            let a = all.object(at: i)
+            if a.localIdentifier == id { return a }
+        }
+        return all.firstObject ?? PHAsset()
     }
 
     // MARK: - Remove selected

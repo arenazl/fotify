@@ -49,23 +49,40 @@ struct FaceMatchView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                             .padding(.horizontal, 20)
 
-                        // Search button
+                        // Search buttons
                         if !isSearching && matchedAssets.isEmpty && !folderCreated {
-                            Button {
-                                Task { await searchForPerson() }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "sparkles")
-                                    Text("Buscar esta persona")
+                            VStack(spacing: 10) {
+                                Button {
+                                    Task { await searchForPerson(limit: 100) }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "bolt.fill")
+                                        Text("Express (100 fotos)")
+                                    }
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(.purple)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
                                 }
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                                .background(.purple)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .padding(.horizontal, 20)
+
+                                Button {
+                                    Task { await searchForPerson(limit: 0) }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "sparkles")
+                                        Text("Completa (todas)")
+                                    }
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.purple)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(.purple.opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                                }
                             }
+                            .padding(.horizontal, 20)
                             .disabled(personName.isEmpty)
                             .opacity(personName.isEmpty ? 0.5 : 1)
                         }
@@ -224,7 +241,7 @@ struct FaceMatchView: View {
 
     // MARK: - Face Search
 
-    private func searchForPerson() async {
+    private func searchForPerson(limit: Int = 0) async {
         isSearching = true
         matchedAssets = []
         debugLog = []
@@ -239,8 +256,9 @@ struct FaceMatchView: View {
         var seen: Set<String> = []
         let candidates = rawCandidates.filter { seen.insert($0.localIdentifier).inserted }
 
-        totalCandidates = candidates.count
-        debugLog.append("Encontradas \(totalCandidates) fotos con personas (dedup)")
+        let limitedCandidates = limit > 0 ? Array(candidates.prefix(limit)) : candidates
+        totalCandidates = limitedCandidates.count
+        debugLog.append("Candidatas: \(limitedCandidates.count) de \(candidates.count) fotos con personas")
 
         guard let refImage = referenceImage,
               let refJpeg = refImage.jpegData(compressionQuality: 0.4) else {
@@ -351,9 +369,11 @@ struct FaceMatchView: View {
     // MARK: - Create Folder
 
     private func createPersonFolder() {
-        var folder = CustomFolder(name: personName, searchTerms: [])
-        folder.matchedAssetIds = matchedAssets.map { $0.localIdentifier }
-        folder.lastUpdated = Date()
+        let folder = CustomFolder(
+            personName: personName,
+            referenceAssetId: referenceAsset.localIdentifier,
+            matchedIds: matchedAssets.map { $0.localIdentifier }
+        )
         folderManager.addFolder(folder)
         folderCreated = true
     }

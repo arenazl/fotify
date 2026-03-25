@@ -10,6 +10,7 @@ struct GrokCommandResponse {
         case tagPhotos
         case searchByTerms([String])
         case searchByLocation(String)
+        case personSearch(String, [String]) // person name, context tags
         case createAlbum(String, [String])
         case chat(String)
         case none
@@ -32,7 +33,7 @@ actor GrokService {
 
     // MARK: - Command Processing
 
-    func processCommand(_ command: String, photoLibrary: PhotoLibraryService, availableTags: [String]) async -> GrokCommandResponse {
+    func processCommand(_ command: String, photoLibrary: PhotoLibraryService, availableTags: [String], taggedPersons: [String] = []) async -> GrokCommandResponse {
         // Local matching first
         let lower = command.lowercased()
 
@@ -48,21 +49,25 @@ actor GrokService {
         }
 
         // Send to Groq — search with synonyms
+        let personsInfo = taggedPersons.isEmpty ? "" : "\nPersonas tagueadas en la app: \(taggedPersons.joined(separator: ", ")). Si el usuario menciona alguna de estas personas, usá action \"person_search\"."
+
         let prompt = """
         El usuario busca fotos con: "\(command)"
-        El usuario es de ARGENTINA. Priorizá ubicaciones argentinas.
+        El usuario es de ARGENTINA. Priorizá ubicaciones argentinas.\(personsInfo)
 
         Extraé el concepto principal ignorando "fotos de/con/en", "mostrame", etc.
         Determiná qué tipo de acción es y respondé con JSON (sin markdown, sin ```):
 
-        Si busca por contenido → {"action": "search", "search": ["palabra1", "sinónimo1", "sinónimo2", ...], "message": "respuesta"}
+        Si busca por contenido → {"action": "search", "search": ["palabra1", "sinónimo1", ...], "message": "respuesta"}
+        Si menciona una persona tagueada + contexto → {"action": "person_search", "person": "nombre", "search": ["contexto1", "sinónimo1", ...], "message": "respuesta"}
+        Si menciona solo una persona tagueada sin contexto → {"action": "person_search", "person": "nombre", "search": [], "message": "respuesta"}
         Si busca por ciudad/lugar/país → {"action": "location", "place": "Lugar, Provincia, Argentina", "message": "respuesta"}
         Si pide crear carpeta/álbum → {"action": "create_album", "search": ["palabras clave"], "album": "nombre", "message": "respuesta"}
         Si pide capturas → {"action": "screenshots", "message": "respuesta"}
         Si pide duplicados → {"action": "duplicates", "message": "respuesta"}
         Si es pregunta general → {"action": "chat", "message": "respuesta"}
 
-        Para action "search": generá las palabras clave incluyendo sinónimos, variantes sin tildes, regionalismos y algún error de ortografía común. SIEMPRE al menos 5 palabras.
+        Para search: generá palabras clave con sinónimos, variantes sin tildes, regionalismos. SIEMPRE al menos 5 palabras.
         """
 
         await DebugLogger.shared.log("GROQ", "Query: \"\(command)\"")
@@ -73,6 +78,8 @@ actor GrokService {
         switch response.action {
         case .searchByTerms(let terms):
             await DebugLogger.shared.log("GROQ", "Action: search, terms: \(terms.prefix(5))")
+        case .personSearch(let person, let context):
+            await DebugLogger.shared.log("GROQ", "Action: person_search, persona: \(person), contexto: \(context.prefix(5))")
         case .searchByLocation(let place):
             await DebugLogger.shared.log("GROQ", "Action: location, lugar: \(place)")
         case .createAlbum(let name, let tags):
@@ -154,6 +161,9 @@ actor GrokService {
         switch actionStr {
         case "search":
             return GrokCommandResponse(action: .searchByTerms(searchTerms), message: message)
+        case "person_search":
+            let person = json["person"] as? String ?? ""
+            return GrokCommandResponse(action: .personSearch(person, searchTerms), message: message)
         case "location":
             let place = json["place"] as? String ?? searchTerms.first ?? ""
             return GrokCommandResponse(action: .searchByLocation(place), message: message)

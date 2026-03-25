@@ -118,8 +118,15 @@ struct ContentView: View {
             await tagsVM.backgroundScan(photoLibrary: photoLibrary)
             DebugLogger.shared.log("APP", "Scan completo. Indexadas: \(tagsVM.scannedCount)")
 
-            // Refresh again
+            // Refresh tag-based folders
             folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
+
+            // Background person scan (50 photos per launch per person)
+            let personCount = folderManager.folders.filter { $0.isPerson }.count
+            if personCount > 0 {
+                DebugLogger.shared.log("FACE", "BG scan: \(personCount) personas tagueadas")
+                await folderManager.backgroundPersonScan(photoLibrary: photoLibrary)
+            }
         }
     }
 }
