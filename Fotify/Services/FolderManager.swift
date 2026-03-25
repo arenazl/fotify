@@ -57,6 +57,8 @@ enum FaceComparer {
 @MainActor
 class FolderManager: ObservableObject {
     @Published var folders: [CustomFolder] = []
+    @Published var personScanProgress: String = "" // "Lucas: 350/11000"
+    @Published var isPersonScanning = false
 
     private let keychainService = "com.fotify.folders"
     private let keychainAccount = "custom_folders"
@@ -97,6 +99,88 @@ class FolderManager: ObservableObject {
             }
         }
         save()
+    }
+
+    /// Full person scan: runs from FaceMatchView, continues even if view closes
+    func fullPersonScan(personName: String, referenceAssetId: String, initialMatchIds: [String], photoLibrary: PhotoLibraryService, tagsVM: TagsViewModel) async {
+        guard let allPhotos = photoLibrary.allPhotos else { return }
+
+        // Create or update folder
+        var folder: CustomFolder
+        if let idx = folders.firstIndex(where: { $0.isPerson && $0.name == personName }) {
+            folder = folders[idx]
+        } else {
+            folder = CustomFolder(personName: personName, referenceAssetId: referenceAssetId, matchedIds: initialMatchIds)
+            folders.append(folder)
+            save()
+        }
+
+        guard let refImg = await photoLibrary.thumbnail(
+            for: findAsset(id: referenceAssetId, in: allPhotos),
+            size: CGSize(width: 200, height: 200)
+        ), let refJpeg = refImg.jpegData(compressionQuality: 0.4) else { return }
+        let refBase64 = refJpeg.base64EncodedString()
+
+        isPersonScanning = true
+        let personTerms = ["hombre", "mujer", "persona", "niño", "niña", "gente", "grupo", "joven", "adulto", "bebé", "chico", "chica", "nene", "nena", "selfie", "retrato"]
+        let candidates = tagsVM.searchByTerms(personTerms, photoLibrary: photoLibrary)
+
+        var existingIds = Set(folder.matchedAssetIds)
+        let total = candidates.count
+        var checked = 0
+
+        DebugLogger.shared.log("FACE", "Full scan \(personName): \(total) candidatas")
+
+        let batchSize = 10
+        for batchStart in stride(from: 0, to: candidates.count, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, candidates.count)
+
+            await withTaskGroup(of: (String, Bool).self) { group in
+                for i in batchStart..<batchEnd {
+                    let candidate = candidates[i]
+                    let candidateId = candidate.localIdentifier
+                    if existingIds.contains(candidateId) || candidateId == referenceAssetId {
+                        group.addTask { return (candidateId, false) }
+                        continue
+                    }
+
+                    group.addTask {
+                        guard let img = await photoLibrary.thumbnail(for: candidate, size: CGSize(width: 150, height: 150)),
+                              let jpeg = img.jpegData(compressionQuality: 0.3) else {
+                            return (candidateId, false)
+                        }
+                        let isMatch = await FaceComparer.compare(ref: refBase64, candidate: jpeg.base64EncodedString())
+                        return (candidateId, isMatch)
+                    }
+                }
+
+                for await (assetId, isMatch) in group {
+                    checked += 1
+                    if isMatch && !existingIds.contains(assetId) {
+                        existingIds.insert(assetId)
+                        // Update folder in place
+                        if let idx = folders.firstIndex(where: { $0.isPerson && $0.name == personName }) {
+                            folders[idx].matchedAssetIds.append(assetId)
+                        }
+                    }
+                }
+            }
+
+            personScanProgress = "\(personName): \(checked)/\(total)"
+
+            // Save every 50 photos
+            if checked % 50 < batchSize { save() }
+        }
+
+        // Final save
+        if let idx = folders.firstIndex(where: { $0.isPerson && $0.name == personName }) {
+            folders[idx].lastUpdated = Date()
+            folders[idx].lastScannedIndex = candidates.count
+        }
+        save()
+        isPersonScanning = false
+        personScanProgress = ""
+        DebugLogger.shared.log("FACE", "Full scan \(personName) completo: \(existingIds.count) matches")
     }
 
     /// Background scan: compare unscanned photos against person folders

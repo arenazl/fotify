@@ -68,11 +68,11 @@ struct FaceMatchView: View {
                                 }
 
                                 Button {
-                                    Task { await searchForPerson(limit: 0) }
+                                    launchFullScan()
                                 } label: {
                                     HStack {
                                         Image(systemName: "sparkles")
-                                        Text("Completa (todas)")
+                                        Text("Completa (en background)")
                                     }
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.purple)
@@ -85,6 +85,16 @@ struct FaceMatchView: View {
                             .padding(.horizontal, 20)
                             .disabled(personName.isEmpty)
                             .opacity(personName.isEmpty ? 0.5 : 1)
+                        }
+
+                        // Background scan progress
+                        if folderManager.isPersonScanning {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.purple).scaleEffect(0.8)
+                                Text(folderManager.personScanProgress)
+                                    .font(.caption2)
+                                    .foregroundStyle(.purple)
+                            }
                         }
 
                         // Progress
@@ -367,6 +377,29 @@ struct FaceMatchView: View {
     }
 
     // MARK: - Create Folder
+
+    private func launchFullScan() {
+        guard !personName.isEmpty else { return }
+        // Create folder immediately with reference
+        let folder = CustomFolder(
+            personName: personName,
+            referenceAssetId: referenceAsset.localIdentifier,
+            matchedIds: [referenceAsset.localIdentifier]
+        )
+        folderManager.addFolder(folder)
+        folderCreated = true
+
+        // Launch background scan (continues even if view closes)
+        Task {
+            await folderManager.fullPersonScan(
+                personName: personName,
+                referenceAssetId: referenceAsset.localIdentifier,
+                initialMatchIds: [referenceAsset.localIdentifier],
+                photoLibrary: photoLibrary,
+                tagsVM: tagsVM
+            )
+        }
+    }
 
     private func createPersonFolder() {
         let folder = CustomFolder(

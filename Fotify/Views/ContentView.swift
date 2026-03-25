@@ -160,6 +160,16 @@ struct CortexTab: View {
                             }
                             .padding(.bottom, 10)
                         }
+
+                        if folderManager.isPersonScanning {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.pink).scaleEffect(0.8)
+                                Text(folderManager.personScanProgress)
+                                    .font(.caption2)
+                                    .foregroundStyle(.pink)
+                            }
+                            .padding(.bottom, 10)
+                        }
                     }
                     .padding(.top, 10)
                 }
