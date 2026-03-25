@@ -4,6 +4,7 @@ import Photos
 struct NeuralDashboard: View {
     @EnvironmentObject var photoLibrary: PhotoLibraryService
     @ObservedObject var folderManager: FolderManager
+    @ObservedObject var tagsVM: TagsViewModel
     @Binding var showCreateFolder: Bool
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
@@ -94,25 +95,19 @@ struct NeuralDashboard: View {
                 HStack(spacing: 14) {
                     ForEach(folderManager.folders) { folder in
                         NavigationLink(value: folder) {
-                            VStack(spacing: 8) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(.purple.opacity(0.15))
-                                        .frame(width: 80, height: 80)
-                                    Image(systemName: "folder.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.purple)
-                                }
-
-                                Text(folder.name)
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .frame(width: 80)
-                            }
+                            FolderThumbnailView(folder: folder)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                refreshingFolderId = folder.id
+                                Task {
+                                    folderManager.refreshFolders(tagsVM: tagsVM, photoLibrary: photoLibrary)
+                                    refreshingFolderId = nil
+                                }
+                            } label: {
+                                Label("Actualizar", systemImage: "arrow.clockwise")
+                            }
                             Button(role: .destructive) {
                                 folderManager.removeFolder(id: folder.id)
                             } label: {
@@ -122,6 +117,65 @@ struct NeuralDashboard: View {
                     }
                 }
                 .padding(.horizontal, 24)
+            }
+        }
+    }
+
+    @State private var refreshingFolderId: String?
+}
+
+// MARK: - Folder Thumbnail
+
+struct FolderThumbnailView: View {
+    let folder: CustomFolder
+    @EnvironmentObject var photoLibrary: PhotoLibraryService
+    @State private var thumbnail: UIImage?
+
+    private var assetId: String? {
+        folder.referenceAssetId ?? folder.matchedAssetIds.first
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if let thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 70, height: 70)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle().stroke(.purple.opacity(0.5), lineWidth: 2)
+                    )
+            } else {
+                Circle()
+                    .fill(.purple.opacity(0.15))
+                    .frame(width: 70, height: 70)
+                    .overlay(
+                        Image(systemName: folder.isPerson ? "person.fill" : "folder.fill")
+                            .font(.title3)
+                            .foregroundStyle(.purple)
+                    )
+            }
+
+            Text(folder.name)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .frame(width: 70)
+
+            Text("\(folder.matchedAssetIds.count)")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
+        .task {
+            guard let id = assetId,
+                  let allPhotos = photoLibrary.allPhotos else { return }
+            for i in 0..<allPhotos.count {
+                let asset = allPhotos.object(at: i)
+                if asset.localIdentifier == id {
+                    thumbnail = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 150, height: 150))
+                    break
+                }
             }
         }
     }

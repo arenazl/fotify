@@ -149,7 +149,7 @@ struct CortexTab: View {
                     VStack(spacing: 24) {
                         cortexHeader
 
-                        NeuralDashboard(folderManager: folderManager, showCreateFolder: $showCreateFolder)
+                        NeuralDashboard(folderManager: folderManager, tagsVM: tagsVM, showCreateFolder: $showCreateFolder)
 
                         if case .scanning(let progress) = tagsVM.state {
                             HStack(spacing: 8) {
