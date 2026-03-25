@@ -93,7 +93,7 @@ struct ContentView: View {
         .tint(.purple)
         .task {
             // Log device state
-            DebugLogger.shared.log("APP", "=== FOTIFY v1.8.2 INICIO ===")
+            DebugLogger.shared.log("APP", "=== FOTIFY v1.8.3 INICIO ===")
             DebugLogger.shared.log("APP", "Total fotos: \(photoLibrary.photoCount)")
             DebugLogger.shared.log("APP", "Capturas: \(photoLibrary.screenshotCount)")
             DebugLogger.shared.log("APP", "Favoritos: \(photoLibrary.favoritesCount)")
@@ -198,7 +198,7 @@ struct CortexTab: View {
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundColor(.white)
 
-            Text("v1.8.2")
+            Text("v1.8.3")
                 .font(.system(size: 14, weight: .light))
                 .foregroundColor(.secondary)
 
@@ -579,7 +579,7 @@ struct SettingsTab: View {
 
                         // App info
                         VStack(spacing: 8) {
-                            Text("Fotify v1.8.2 (build 8)")
+                            Text("Fotify v1.8.3 (build 8)")
                                 .font(.caption).foregroundStyle(.secondary)
                             Text("IA: Llama 4 Scout via Groq")
                                 .font(.caption2).foregroundStyle(.secondary)
