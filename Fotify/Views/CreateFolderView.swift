@@ -246,10 +246,13 @@ struct CreateFolderView: View {
             debugLog.append("SEARCH TERMS: \(terms.prefix(10).joined(separator: ", "))")
             assets = tagsVM.searchByTerms(terms, photoLibrary: photoLibrary)
             debugLog.append("RESULTADOS: \(assets.count) fotos")
-            // Log tags of first 5 matches
-            for (i, asset) in assets.prefix(5).enumerated() {
+            // Log first 20 matches with which word matched
+            let termsSet = Set(terms.map { $0.lowercased() })
+            for (i, asset) in assets.prefix(20).enumerated() {
                 if let tags = tagsVM.tagsForAsset(asset.localIdentifier) {
-                    debugLog.append("MATCH \(i+1): \(tags.joined(separator: ", "))")
+                    let tagsSet = Set(tags.map { $0.lowercased() })
+                    let matchedWords = termsSet.intersection(tagsSet)
+                    debugLog.append("MATCH \(i+1) [\(matchedWords.joined(separator: ","))]: \(tags.prefix(8).joined(separator: ", "))")
                 }
             }
         case .searchByLocation(let place):
