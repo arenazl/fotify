@@ -32,8 +32,13 @@ enum FaceComparer {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 429 {
+                await DebugLogger.shared.log("FACE", "⚠️ Rate limit, esperando 2s...")
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 return await compare(ref: ref, candidate: candidate)
+            }
+            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode != 200 {
+                await DebugLogger.shared.log("FACE", "❌ API error: \(httpResp.statusCode)")
+                return false
             }
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let choices = json["choices"] as? [[String: Any]],
@@ -147,6 +152,7 @@ class FolderManager: ObservableObject {
                     group.addTask {
                         guard let img = await photoLibrary.thumbnail(for: candidate, size: CGSize(width: 150, height: 150)),
                               let jpeg = img.jpegData(compressionQuality: 0.3) else {
+                            await DebugLogger.shared.log("FACE", "❌ Sin thumbnail")
                             return (candidateId, false)
                         }
                         let isMatch = await FaceComparer.compare(ref: refBase64, candidate: jpeg.base64EncodedString())
@@ -158,10 +164,12 @@ class FolderManager: ObservableObject {
                     checked += 1
                     if isMatch && !existingIds.contains(assetId) {
                         existingIds.insert(assetId)
-                        // Update folder in place
                         if let idx = folders.firstIndex(where: { $0.isPerson && $0.name == personName }) {
                             folders[idx].matchedAssetIds.append(assetId)
                         }
+                        DebugLogger.shared.log("FACE", "✅ MATCH #\(existingIds.count) (\(checked)/\(total))")
+                    } else if checked % 50 == 0 {
+                        DebugLogger.shared.log("FACE", "⏳ \(checked)/\(total) - matches: \(existingIds.count)")
                     }
                 }
             }
