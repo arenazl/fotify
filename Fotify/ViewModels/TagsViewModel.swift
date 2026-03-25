@@ -261,11 +261,12 @@ class TagsViewModel: ObservableObject {
             let asset = allPhotos.object(at: i)
             guard let indexed = photoIndex[asset.localIdentifier] else { continue }
 
-            // Exact word matching — all intelligence is in Groq's synonyms
+            // Exact word matching — require at least 2 matching words
             let searchWords = Set(searchTerms.map { $0.lowercased() })
             let tagWords = Set(indexed.tags.map { $0.lowercased() })
 
-            let match = !searchWords.isDisjoint(with: tagWords)
+            let matchCount = searchWords.intersection(tagWords).count
+            let match = matchCount >= 2
 
             if match {
                 results.append(asset)
