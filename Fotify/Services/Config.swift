@@ -2,7 +2,7 @@ import Foundation
 
 enum Config {
     // MARK: - API Keys (Groq)
-    static let groqAPIKey: String = "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"
+    static let groqAPIKey: String = "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"
     static let groqModel: String = "llama-3.3-70b-versatile"
     static let groqVisionModel: String = "meta-llama/llama-4-scout-17b-16e-instruct"
 
