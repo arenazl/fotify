@@ -69,8 +69,16 @@ struct DebugSheetView: View {
                     Button("Cerrar") { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Limpiar") { debugLog.clear() }
-                        .foregroundStyle(.red)
+                    HStack(spacing: 16) {
+                        Button {
+                            let text = debugLog.logs.map { "[\($0.category)] \($0.message)" }.joined(separator: "\n")
+                            UIPasteboard.general.string = text
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        Button("Limpiar") { debugLog.clear() }
+                            .foregroundStyle(.red)
+                    }
                 }
             }
         }
