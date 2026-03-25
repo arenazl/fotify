@@ -3,7 +3,7 @@ import Photos
 
 @MainActor
 class DuplicatesViewModel: ObservableObject {
-    enum State {
+    enum State: Equatable {
         case idle
         case scanning(Double)
         case done
