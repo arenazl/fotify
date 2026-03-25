@@ -15,8 +15,8 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "1.7.8",
-          "buildVersion": "15",
+          "version": "1.7.9",
+          "buildVersion": "16",
           "date": "2026-03-22",
           "localizedDescription": "Navegación nativa iOS: tabs Inicio/Biblioteca/Limpieza/Buscar. Swipe back en todas las pantallas. Capturas con conteo real. Búsqueda IA por texto libre. Escaneo de fotos en background sin congelar la app.",
           "downloadURL": "https://raw.githubusercontent.com/arenazl/fotify-dist/main/Fotify.ipa",
