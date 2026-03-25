@@ -56,7 +56,7 @@ struct CustomFolder: Codable, Identifiable, Hashable {
 
 enum PhotoCategory: String, CaseIterable, Identifiable {
     case recents, places, people, screenshots, duplicates
-    case favorites, videos, selfies, livePhotos
+    case favorites, videos, selfies, personal
     case documents, landscapes
 
     var id: String { rawValue }
@@ -71,7 +71,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .favorites: "Favoritos"
         case .videos: "Videos"
         case .selfies: "Selfies"
-        case .livePhotos: "Live Photos"
+        case .personal: "Personal"
         case .documents: "Documentos"
         case .landscapes: "Paisajes"
         }
@@ -87,7 +87,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .favorites: "heart.fill"
         case .videos: "video.fill"
         case .selfies: "person.crop.square"
-        case .livePhotos: "camera.viewfinder"
+        case .personal: "person.crop.circle"
         case .documents: "doc.text.viewfinder"
         case .landscapes: "mountain.2.fill"
         }
@@ -103,7 +103,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
         case .favorites: .red
         case .videos: .cyan
         case .selfies: .indigo
-        case .livePhotos: .mint
+        case .personal: .pink
         case .documents: .brown
         case .landscapes: .teal
         }
@@ -236,7 +236,7 @@ class PhotoLibraryService: ObservableObject {
         case .favorites: return favoritesCount > 0 ? favoritesCount : nil
         case .videos: return videosCount > 0 ? videosCount : nil
         case .selfies: return selfiesCount > 0 ? selfiesCount : nil
-        case .livePhotos: return livePhotosCount > 0 ? livePhotosCount : nil
+        case .personal: return nil
         case .people: return peopleCount > 0 ? peopleCount : nil
         case .places, .documents, .landscapes, .duplicates: return nil
         }
@@ -249,7 +249,7 @@ class PhotoLibraryService: ObservableObject {
         case .favorites: return favorites
         case .videos: return videos
         case .selfies: return selfies
-        case .livePhotos: return livePhotos
+        case .personal: return nil
         default: return nil
         }
     }

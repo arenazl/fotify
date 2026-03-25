@@ -371,7 +371,7 @@ struct CategoryDetailView: View {
 
     private func loadContent() async {
         switch category {
-        case .recents, .screenshots, .favorites, .videos, .selfies, .livePhotos:
+        case .recents, .screenshots, .favorites, .videos, .selfies:
             let fetch = photoLibrary.fetchResult(for: category)
             fetchResult = fetch
             totalCount = fetch?.count ?? 0
@@ -390,6 +390,22 @@ struct CategoryDetailView: View {
             let found = tagsVM.photosForCategory(category, photoLibrary: photoLibrary)
             assets = found
             totalCount = found.count
+
+        case .personal:
+            // Show all photos from tagged persons
+            if let fm = folderManager {
+                let personFolders = fm.folders.filter { $0.isPerson }
+                let allIds = Set(personFolders.flatMap { $0.matchedAssetIds })
+                if let allPhotos = photoLibrary.allPhotos {
+                    for i in 0..<allPhotos.count {
+                        let asset = allPhotos.object(at: i)
+                        if allIds.contains(asset.localIdentifier) {
+                            assets.append(asset)
+                        }
+                    }
+                }
+                totalCount = assets.count
+            }
 
         case .duplicates:
             break
