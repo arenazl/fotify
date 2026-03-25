@@ -53,6 +53,9 @@ struct CategoryDetailView: View {
     @State private var gridSize: GridSize = .medium
     @State private var groupBy: GroupBy = .none
     @State private var faceMatchAsset: PHAsset?
+    @State private var isSelecting = false
+    @State private var selectedIds: Set<String> = []
+    @State private var showDeleteConfirmation = false
     var folderManager: FolderManager?
 
     private var columns: [GridItem] {
@@ -90,37 +93,75 @@ struct CategoryDetailView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    // Grid size
-                    Section("Tamaño") {
-                        ForEach(GridSize.allCases, id: \.self) { size in
+                HStack(spacing: 12) {
+                    if isSelecting {
+                        Button {
+                            // Select all
+                            if let fetch = fetchResult {
+                                for i in 0..<fetch.count { selectedIds.insert(fetch.object(at: i).localIdentifier) }
+                            } else {
+                                assets.forEach { selectedIds.insert($0.localIdentifier) }
+                            }
+                        } label: {
+                            Text("Todo")
+                                .font(.caption.bold())
+                        }
+
+                        if !selectedIds.isEmpty {
                             Button {
-                                withAnimation(.spring(duration: 0.3)) { gridSize = size }
+                                showDeleteConfirmation = true
                             } label: {
-                                Label(size.label, systemImage: size.icon)
-                                if gridSize == size {
-                                    Image(systemName: "checkmark")
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash")
+                                    Text("\(selectedIds.count)")
                                 }
+                                .font(.caption.bold())
+                                .foregroundStyle(.red)
                             }
                         }
-                    }
-                    // Group by
-                    Section("Agrupar por") {
-                        ForEach(GroupBy.allCases, id: \.self) { group in
-                            Button {
-                                withAnimation(.spring(duration: 0.3)) { groupBy = group }
-                            } label: {
-                                Label(group.label, systemImage: group == .none ? "square.grid.3x3" : group == .week ? "calendar" : "calendar.badge.clock")
-                                if groupBy == group {
-                                    Image(systemName: "checkmark")
+
+                        Button {
+                            isSelecting = false
+                            selectedIds.removeAll()
+                        } label: {
+                            Text("Listo")
+                                .font(.caption.bold())
+                        }
+                    } else {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Text("Seleccionar")
+                                .font(.caption.bold())
+                        }
+
+                        Menu {
+                            Section("Tamaño") {
+                                ForEach(GridSize.allCases, id: \.self) { size in
+                                    Button {
+                                        withAnimation(.spring(duration: 0.3)) { gridSize = size }
+                                    } label: {
+                                        Label(size.label, systemImage: size.icon)
+                                        if gridSize == size { Image(systemName: "checkmark") }
+                                    }
                                 }
                             }
+                            Section("Agrupar por") {
+                                ForEach(GroupBy.allCases, id: \.self) { group in
+                                    Button {
+                                        withAnimation(.spring(duration: 0.3)) { groupBy = group }
+                                    } label: {
+                                        Label(group.label, systemImage: group == .none ? "square.grid.3x3" : group == .week ? "calendar" : "calendar.badge.clock")
+                                        if groupBy == group { Image(systemName: "checkmark") }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.title3)
+                                .foregroundStyle(.white)
                         }
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(.white)
                 }
             }
         }
@@ -131,6 +172,29 @@ struct CategoryDetailView: View {
                 assets: assets
             )
             .environmentObject(photoLibrary)
+        }
+        .confirmationDialog(
+            "Eliminar \(selectedIds.count) fotos",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar", role: .destructive) {
+                Task {
+                    guard let allPhotos = photoLibrary.allPhotos else { return }
+                    var toDelete: [PHAsset] = []
+                    for i in 0..<allPhotos.count {
+                        let a = allPhotos.object(at: i)
+                        if selectedIds.contains(a.localIdentifier) { toDelete.append(a) }
+                    }
+                    try? await photoLibrary.deleteAssets(toDelete)
+                    selectedIds.removeAll()
+                    isSelecting = false
+                    await loadContent()
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("iOS te pedirá confirmación. No se puede deshacer.")
         }
         .sheet(item: $faceMatchAsset) { asset in
             FaceMatchView(
@@ -179,19 +243,41 @@ struct CategoryDetailView: View {
         LazyVGrid(columns: columns, spacing: 1) {
             if let fetch = fetchResult {
                 ForEach(0..<min(fetch.count, 5000), id: \.self) { index in
-                    PhotoGridCell(asset: fetch.object(at: index))
-                        .onTapGesture { selectedIndex = index }
+                    let asset = fetch.object(at: index)
+                    selectableCell(asset: asset, index: index)
                 }
             } else {
                 ForEach(0..<assets.count, id: \.self) { index in
-                    if category == .people {
-                        PhotoGridCell(asset: assets[index])
-                            .onTapGesture { faceMatchAsset = assets[index] }
-                    } else {
-                        PhotoGridCell(asset: assets[index])
-                            .onTapGesture { selectedIndex = index }
-                    }
+                    let asset = assets[index]
+                    selectableCell(asset: asset, index: index)
                 }
+            }
+        }
+    }
+
+    private func selectableCell(asset: PHAsset, index: Int) -> some View {
+        ZStack(alignment: .topTrailing) {
+            PhotoGridCell(asset: asset)
+
+            if isSelecting {
+                Image(systemName: selectedIds.contains(asset.localIdentifier) ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selectedIds.contains(asset.localIdentifier) ? .blue : .white.opacity(0.5))
+                    .shadow(radius: 3)
+                    .padding(4)
+            }
+        }
+        .onTapGesture {
+            if isSelecting {
+                if selectedIds.contains(asset.localIdentifier) {
+                    selectedIds.remove(asset.localIdentifier)
+                } else {
+                    selectedIds.insert(asset.localIdentifier)
+                }
+            } else if category == .people {
+                faceMatchAsset = asset
+            } else {
+                selectedIndex = index
             }
         }
     }

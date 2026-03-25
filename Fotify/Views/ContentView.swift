@@ -251,6 +251,9 @@ struct CustomFolderDetailView: View {
     @State private var assets: [PHAsset] = []
     @State private var isLoading = true
     @State private var selectedIndex: Int?
+    @State private var isSelecting = false
+    @State private var selectedIds: Set<String> = []
+    @State private var showDeleteConfirmation = false
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
 
@@ -272,8 +275,28 @@ struct CustomFolderDetailView: View {
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: 1) {
                         ForEach(0..<assets.count, id: \.self) { index in
-                            PhotoGridCell(asset: assets[index])
-                                .onTapGesture { selectedIndex = index }
+                            let asset = assets[index]
+                            ZStack(alignment: .topTrailing) {
+                                PhotoGridCell(asset: asset)
+                                if isSelecting {
+                                    Image(systemName: selectedIds.contains(asset.localIdentifier) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(selectedIds.contains(asset.localIdentifier) ? .blue : .white.opacity(0.5))
+                                        .shadow(radius: 3)
+                                        .padding(4)
+                                }
+                            }
+                            .onTapGesture {
+                                if isSelecting {
+                                    if selectedIds.contains(asset.localIdentifier) {
+                                        selectedIds.remove(asset.localIdentifier)
+                                    } else {
+                                        selectedIds.insert(asset.localIdentifier)
+                                    }
+                                } else {
+                                    selectedIndex = index
+                                }
+                            }
                         }
                     }
                 }
@@ -294,6 +317,57 @@ struct CustomFolderDetailView: View {
                     }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 12) {
+                    if isSelecting {
+                        Button {
+                            assets.forEach { selectedIds.insert($0.localIdentifier) }
+                        } label: {
+                            Text("Todo").font(.caption.bold())
+                        }
+                        if !selectedIds.isEmpty {
+                            Button {
+                                showDeleteConfirmation = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash")
+                                    Text("\(selectedIds.count)")
+                                }.font(.caption.bold()).foregroundStyle(.red)
+                            }
+                        }
+                        Button {
+                            isSelecting = false
+                            selectedIds.removeAll()
+                        } label: {
+                            Text("Listo").font(.caption.bold())
+                        }
+                    } else {
+                        Button {
+                            isSelecting = true
+                        } label: {
+                            Text("Seleccionar").font(.caption.bold())
+                        }
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            "Eliminar \(selectedIds.count) fotos",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar", role: .destructive) {
+                Task {
+                    let toDelete = assets.filter { selectedIds.contains($0.localIdentifier) }
+                    try? await photoLibrary.deleteAssets(toDelete)
+                    assets.removeAll { selectedIds.contains($0.localIdentifier) }
+                    selectedIds.removeAll()
+                    isSelecting = false
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("iOS te pedirá confirmación. No se puede deshacer.")
         }
         .fullScreenCover(item: $selectedIndex) { index in
             PhotoViewer(initialIndex: index, fetchResult: nil, assets: assets)
