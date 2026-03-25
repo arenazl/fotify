@@ -269,8 +269,6 @@ class TagsViewModel: ObservableObject {
 
             if match {
                 results.append(asset)
-                DebugLogger.shared.log("SEARCH", "MATCH: \(indexed.tags.prefix(5).joined(separator: ", "))")
-                if results.count >= 200 { break }
             }
         }
 
@@ -305,7 +303,6 @@ class TagsViewModel: ObservableObject {
             photosWithGPS += 1
             if assetLoc.distance(from: target) < 5000 {
                 results.append(asset)
-                if results.count >= 200 { break }
             }
         }
 
