@@ -300,7 +300,20 @@ struct CustomFolderDetailView: View {
                 .environmentObject(photoLibrary)
         }
         .task {
-            assets = tagsVM.searchByTerms(folder.searchTerms, photoLibrary: photoLibrary)
+            if !folder.matchedAssetIds.isEmpty {
+                // Face match folders: use saved asset IDs directly
+                guard let allPhotos = photoLibrary.allPhotos else { isLoading = false; return }
+                let idSet = Set(folder.matchedAssetIds)
+                for i in 0..<allPhotos.count {
+                    let asset = allPhotos.object(at: i)
+                    if idSet.contains(asset.localIdentifier) {
+                        assets.append(asset)
+                    }
+                }
+            } else if !folder.searchTerms.isEmpty {
+                // Search-based folders: use tag search
+                assets = tagsVM.searchByTerms(folder.searchTerms, photoLibrary: photoLibrary)
+            }
             isLoading = false
         }
     }

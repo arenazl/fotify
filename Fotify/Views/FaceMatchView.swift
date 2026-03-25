@@ -351,8 +351,9 @@ struct FaceMatchView: View {
     // MARK: - Create Folder
 
     private func createPersonFolder() {
-        let searchTerms = [personName.lowercased(), "persona", "hombre", "mujer"]
-        let folder = CustomFolder(name: personName, searchTerms: searchTerms)
+        var folder = CustomFolder(name: personName, searchTerms: [])
+        folder.matchedAssetIds = matchedAssets.map { $0.localIdentifier }
+        folder.lastUpdated = Date()
         folderManager.addFolder(folder)
         folderCreated = true
     }
