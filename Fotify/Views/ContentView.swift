@@ -160,7 +160,7 @@ struct CortexTab: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .debugToolbar()
             .navigationDestination(for: PhotoCategory.self) { category in
-                CategoryDetailView(category: category, tagsVM: tagsVM)
+                CategoryDetailView(category: category, tagsVM: tagsVM, folderManager: folderManager)
             }
             .navigationDestination(for: CustomFolder.self) { folder in
                 CustomFolderDetailView(folder: folder, tagsVM: tagsVM)

@@ -53,6 +53,7 @@ struct CategoryDetailView: View {
     @State private var gridSize: GridSize = .medium
     @State private var groupBy: GroupBy = .none
     @State private var faceMatchAsset: PHAsset?
+    var folderManager: FolderManager?
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 1), count: gridSize.columnCount)
@@ -135,7 +136,7 @@ struct CategoryDetailView: View {
             FaceMatchView(
                 referenceAsset: asset,
                 tagsVM: tagsVM,
-                folderManager: FolderManager()
+                folderManager: folderManager ?? FolderManager()
             )
             .environmentObject(photoLibrary)
         }
