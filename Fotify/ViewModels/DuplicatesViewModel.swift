@@ -45,6 +45,18 @@ class DuplicatesViewModel: ObservableObject {
         state = .done
     }
 
+    /// Remove specific assets from groups without re-scanning
+    func removeAssets(ids: Set<String>) {
+        duplicateGroups = duplicateGroups.map { group in
+            group.filter { !ids.contains($0.localIdentifier) }
+        }.filter { $0.count > 1 }
+    }
+
+    func clearAll() {
+        duplicateGroups = []
+        state = .done
+    }
+
     private func generateDHash(for asset: PHAsset, photoLibrary: PhotoLibraryService) async -> String? {
         // Get a small thumbnail for hashing
         guard let image = await photoLibrary.thumbnail(for: asset, size: CGSize(width: 9, height: 8)) else {

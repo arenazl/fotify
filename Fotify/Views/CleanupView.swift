@@ -6,19 +6,46 @@ struct CleanupView: View {
     @StateObject private var duplicatesVM = DuplicatesViewModel()
     @State var selectedTab: CleanupTab = .screenshots
     @State private var vaporizeProgress: CGFloat = 0.0
-
     var initialTab: CleanupTab?
     @State private var selectedScreenshots: Set<Int> = []
     @State private var showDeleteConfirmation = false
     @State private var showDeleteDuplicatesConfirmation = false
+    @State private var showDeleteAllConfirmation = false
     @State private var isVaporizing = false
 
     enum CleanupTab: Hashable {
         case screenshots, duplicates
     }
 
+    private var totalCleanable: Int {
+        let screenshotCount = photoLibrary.screenshotCount
+        let dupeCount = duplicatesVM.duplicateGroups.flatMap { $0 }.count - duplicatesVM.duplicateGroups.count
+        return screenshotCount + max(0, dupeCount)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // Limpiar todo button
+            if totalCleanable > 0 && duplicatesVM.state == .done {
+                Button {
+                    showDeleteAllConfirmation = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                        Text("LIMPIAR TODO (\(totalCleanable))")
+                            .font(.system(size: 13, weight: .bold))
+                            .kerning(1)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(.red.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
+
             // Tab selector
             HStack(spacing: 0) {
                 CleanupTabButton(
@@ -40,7 +67,7 @@ struct CleanupView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 16)
+            .padding(.bottom, 12)
 
             // Content
             switch selectedTab {
@@ -50,22 +77,35 @@ struct CleanupView: View {
                 duplicatesContent
             }
         }
+        .confirmationDialog(
+            "Limpiar todo",
+            isPresented: $showDeleteAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar \(totalCleanable) fotos", role: .destructive) {
+                Task { await vaporizeAll() }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se eliminan todas las capturas y los duplicados. iOS te pedirá confirmación.")
+        }
+        .onAppear {
+            if let initialTab { selectedTab = initialTab }
+        }
     }
 
     // MARK: - Screenshots Content
 
     private var screenshotsContent: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             if photoLibrary.screenshotCount == 0 {
                 cleanState(icon: "checkmark.circle", message: "Sin capturas detectadas")
             } else {
-                // Vaporize circle
                 vaporizeCircle(
                     count: selectedScreenshots.isEmpty ? photoLibrary.screenshotCount : selectedScreenshots.count,
-                    label: selectedScreenshots.isEmpty ? "CAPTURAS DETECTADAS" : "SELECCIONADAS"
+                    label: selectedScreenshots.isEmpty ? "CAPTURAS" : "SELECCIONADAS"
                 )
 
-                // Screenshot grid
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4),
@@ -73,22 +113,18 @@ struct CleanupView: View {
                     ) {
                         if let screenshots = photoLibrary.screenshots {
                             ForEach(0..<screenshots.count, id: \.self) { index in
-                                let asset = screenshots.object(at: index)
                                 CleanupPhotoCell(
-                                    asset: asset,
+                                    asset: screenshots.object(at: index),
                                     isSelected: selectedScreenshots.contains(index)
                                 )
-                                .onTapGesture {
-                                    toggleScreenshotSelection(index)
-                                }
+                                .onTapGesture { toggleScreenshotSelection(index) }
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                 }
 
-                // Vaporize button
-                vaporizeButton {
+                vaporizeButton(label: "VAPORIZAR CAPTURAS") {
                     showDeleteConfirmation = true
                 }
             }
@@ -105,37 +141,18 @@ struct CleanupView: View {
         } message: {
             Text("iOS te pedirá confirmación. No se puede deshacer.")
         }
-        .confirmationDialog(
-            "Eliminar \(duplicatesVM.duplicateGroups.flatMap { $0 }.count - duplicatesVM.duplicateGroups.count) duplicados",
-            isPresented: $showDeleteDuplicatesConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Vaporizar duplicados", role: .destructive) {
-                Task { await vaporizeDuplicates() }
-            }
-            Button("Cancelar", role: .cancel) {}
-        } message: {
-            Text("Se mantiene 1 foto de cada grupo y se eliminan las copias. iOS te pedirá confirmación.")
-        }
-        .onAppear {
-            if let initialTab {
-                selectedTab = initialTab
-            }
-        }
     }
 
     // MARK: - Duplicates Content
 
     private var duplicatesContent: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             switch duplicatesVM.state {
             case .idle:
                 vaporizeCircle(count: 0, label: "SIN ESCANEAR")
 
                 Button {
-                    Task {
-                        await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary)
-                    }
+                    Task { await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary) }
                 } label: {
                     Text("ESCANEAR DUPLICADOS")
                         .font(.system(size: 14, weight: .bold))
@@ -159,10 +176,8 @@ struct CleanupView: View {
                 if duplicatesVM.duplicateGroups.isEmpty {
                     cleanState(icon: "checkmark.circle", message: "Sin duplicados encontrados")
                 } else {
-                    vaporizeCircle(
-                        count: duplicatesVM.duplicateGroups.flatMap { $0 }.count - duplicatesVM.duplicateGroups.count,
-                        label: "DUPLICADOS ELIMINABLES"
-                    )
+                    let dupeCount = duplicatesVM.duplicateGroups.flatMap { $0 }.count - duplicatesVM.duplicateGroups.count
+                    vaporizeCircle(count: dupeCount, label: "DUPLICADOS")
 
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 16) {
@@ -173,7 +188,9 @@ struct CleanupView: View {
                                     onDeleteDuplicates: { assets in
                                         Task {
                                             try? await photoLibrary.deleteAssets(assets)
-                                            await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary)
+                                            // Remove from local array instead of re-scanning
+                                            let deletedIds = Set(assets.map { $0.localIdentifier })
+                                            duplicatesVM.removeAssets(ids: deletedIds)
                                         }
                                     }
                                 )
@@ -182,12 +199,23 @@ struct CleanupView: View {
                         .padding(.horizontal, 20)
                     }
 
-                    // Delete all duplicates button
-                    vaporizeButton {
+                    vaporizeButton(label: "VAPORIZAR DUPLICADOS") {
                         showDeleteDuplicatesConfirmation = true
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Eliminar duplicados",
+            isPresented: $showDeleteDuplicatesConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Vaporizar duplicados", role: .destructive) {
+                Task { await vaporizeDuplicates() }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Se mantiene 1 foto de cada grupo y se eliminan las copias.")
         }
     }
 
@@ -197,26 +225,23 @@ struct CleanupView: View {
         ZStack {
             Circle()
                 .stroke(Color.white.opacity(0.1), lineWidth: 2)
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
 
             Circle()
                 .trim(from: 0, to: progress ?? vaporizeProgress)
                 .stroke(
-                    AngularGradient(
-                        colors: [.blue, .purple, .blue],
-                        center: .center
-                    ),
-                    style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                    AngularGradient(colors: [.blue, .purple, .blue], center: .center),
+                    style: StrokeStyle(lineWidth: 6, lineCap: .round)
                 )
-                .frame(width: 200, height: 200)
+                .frame(width: 160, height: 160)
                 .rotationEffect(.degrees(-90))
 
             VStack(spacing: 4) {
                 Text("\(count)")
-                    .font(.system(size: 44, weight: .ultraLight))
+                    .font(.system(size: 36, weight: .ultraLight))
                     .foregroundStyle(.white)
                 Text(label)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .kerning(1)
                     .foregroundColor(.secondary)
             }
@@ -230,7 +255,7 @@ struct CleanupView: View {
         }
     }
 
-    private func vaporizeButton(action: @escaping () -> Void) -> some View {
+    private func vaporizeButton(label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 if isVaporizing {
@@ -238,19 +263,19 @@ struct CleanupView: View {
                 } else {
                     Image(systemName: "sparkles")
                 }
-                Text("VAPORIZAR")
-                    .font(.system(size: 14, weight: .bold))
-                    .kerning(2)
+                Text(label)
+                    .font(.system(size: 13, weight: .bold))
+                    .kerning(1)
             }
             .foregroundColor(.black)
-            .padding(.vertical, 18)
-            .padding(.horizontal, 40)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
             .background(.white)
-            .clipShape(Capsule())
-            .shadow(color: .white.opacity(0.3), radius: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 20)
         }
         .disabled(isVaporizing)
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
     }
 
     private func cleanState(icon: String, message: String) -> some View {
@@ -276,9 +301,14 @@ struct CleanupView: View {
         }
     }
 
-    private func vaporizeDuplicates() async {
+    private func vaporizeAll() async {
         isVaporizing = true
-        // Keep first photo of each group, delete the rest
+        // Delete screenshots
+        if let screenshots = photoLibrary.screenshots, screenshots.count > 0 {
+            let assets = (0..<screenshots.count).map { screenshots.object(at: $0) }
+            try? await photoLibrary.deleteAssets(assets)
+        }
+        // Delete duplicate copies
         var toDelete: [PHAsset] = []
         for group in duplicatesVM.duplicateGroups {
             if group.count > 1 {
@@ -287,8 +317,25 @@ struct CleanupView: View {
         }
         if !toDelete.isEmpty {
             try? await photoLibrary.deleteAssets(toDelete)
-            await duplicatesVM.scanForDuplicates(photoLibrary: photoLibrary)
         }
+        duplicatesVM.clearAll()
+        selectedScreenshots.removeAll()
+        vaporizeProgress = 0
+        isVaporizing = false
+    }
+
+    private func vaporizeDuplicates() async {
+        isVaporizing = true
+        var toDelete: [PHAsset] = []
+        for group in duplicatesVM.duplicateGroups {
+            if group.count > 1 {
+                toDelete.append(contentsOf: Array(group.dropFirst()))
+            }
+        }
+        if !toDelete.isEmpty {
+            try? await photoLibrary.deleteAssets(toDelete)
+        }
+        duplicatesVM.clearAll()
         vaporizeProgress = 0
         isVaporizing = false
     }
@@ -296,15 +343,12 @@ struct CleanupView: View {
     private func vaporizeScreenshots() async {
         guard let screenshots = photoLibrary.screenshots else { return }
         isVaporizing = true
-
         let assetsToDelete: [PHAsset]
         if selectedScreenshots.isEmpty {
-            // Delete all
             assetsToDelete = (0..<screenshots.count).map { screenshots.object(at: $0) }
         } else {
             assetsToDelete = selectedScreenshots.map { screenshots.object(at: $0) }
         }
-
         try? await photoLibrary.deleteAssets(assetsToDelete)
         selectedScreenshots.removeAll()
         vaporizeProgress = 0
@@ -328,8 +372,7 @@ struct CleanupPhotoCell: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Rectangle()
-                        .fill(.gray.opacity(0.2))
+                    Rectangle().fill(.gray.opacity(0.2))
                 }
             }
             .aspectRatio(1, contentMode: .fill)
@@ -392,26 +435,20 @@ struct DuplicateGroupCard: View {
                         VStack(spacing: 4) {
                             CleanupPhotoCell(asset: group[index], isSelected: false)
                                 .frame(width: 100, height: 100)
-                            if index == 0 {
-                                Text("ORIGINAL")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(.green)
-                            } else {
-                                Text("COPIA")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(.red)
-                            }
+                            Text(index == 0 ? "ORIGINAL" : "COPIA")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(index == 0 ? .green : .red)
                         }
                     }
                 }
             }
         }
-        .padding(20)
-        .background(FotifyTheme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .padding(16)
+        .background(.white.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
         .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(FotifyTheme.cardBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(.white.opacity(0.05), lineWidth: 1)
         )
     }
 }
