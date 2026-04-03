@@ -14,42 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate App Icon
-        run: |
-          python3 -c "
-          from PIL import Image, ImageDraw
-          import math
-
-          size = 1024
-          img = Image.new('RGBA', (size, size), (0, 0, 0, 255))
-          draw = ImageDraw.Draw(img)
-
-          # Purple gradient circle
-          cx, cy = size // 2, size // 2
-          for r in range(380, 0, -1):
-              ratio = r / 380.0
-              red = int(90 + (140 - 90) * ratio)
-              green = int(20 + (60 - 20) * (1 - ratio))
-              blue = int(220 + (255 - 220) * (1 - ratio))
-              draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(red, green, blue, 255))
-
-          # White aperture blades
-          for i in range(6):
-              angle = math.radians(i * 60 - 15)
-              x1 = cx + int(120 * math.cos(angle))
-              y1 = cy + int(120 * math.sin(angle))
-              x2 = cx + int(280 * math.cos(angle + math.radians(30)))
-              y2 = cy + int(280 * math.sin(angle + math.radians(30)))
-              x3 = cx + int(280 * math.cos(angle + math.radians(50)))
-              y3 = cy + int(280 * math.sin(angle + math.radians(50)))
-              draw.polygon([(x1, y1), (x2, y2), (x3, y3)], fill=(255, 255, 255, 60))
-
-          # Center dot
-          draw.ellipse([cx-40, cy-40, cx+40, cy+40], fill=(255, 255, 255, 200))
-
-          img.save('Fotify/Assets.xcassets/AppIcon.appiconset/icon.png')
-          img.resize((128, 128), Image.LANCZOS).save('icon_small.png')
-          " 2>/dev/null || echo 'Pillow not available, skipping icon generation'
+      - name: App Icon
+        run: echo "Using committed icon.png"
 
       - name: Select latest Xcode
         run: |
