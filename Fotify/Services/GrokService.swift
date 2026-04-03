@@ -67,7 +67,7 @@ actor GrokService {
         Si pide duplicados → {"action": "duplicates", "message": "respuesta"}
         Si es pregunta general → {"action": "chat", "message": "respuesta"}
 
-        Para search: generá PALABRAS SUELTAS, no frases. Cada elemento del array debe ser una sola palabra. Incluí sinónimos, variantes sin tildes y regionalismos. SIEMPRE al menos 5 palabras.
+        Para search: generá PALABRAS SUELTAS, no frases. Cada elemento del array debe ser una sola palabra. Incluí sinónimos, variantes sin tildes y regionalismos. SIEMPRE al menos 10 palabras. Solo palabras específicas del concepto buscado.
         """
 
         await DebugLogger.shared.log("GROQ", "Query: \"\(command)\"")

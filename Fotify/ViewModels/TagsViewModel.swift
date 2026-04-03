@@ -266,7 +266,7 @@ class TagsViewModel: ObservableObject {
             let tagWords = Set(indexed.tags.map { $0.lowercased() })
 
             let matchCount = searchWords.intersection(tagWords).count
-            let match = matchCount >= 2
+            let match = matchCount >= 1
 
             if match {
                 results.append(asset)
