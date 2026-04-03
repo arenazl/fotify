@@ -93,7 +93,8 @@ struct ContentView: View {
         .tint(.purple)
         .task {
             // Log device state
-            DebugLogger.shared.log("APP", "=== FOTIFY v1.9.2 INICIO ===")
+            let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+            DebugLogger.shared.log("APP", "=== FOTIFY v\(appVersion) INICIO ===")
             DebugLogger.shared.log("APP", "Total fotos: \(photoLibrary.photoCount)")
             DebugLogger.shared.log("APP", "Capturas: \(photoLibrary.screenshotCount)")
             DebugLogger.shared.log("APP", "Favoritos: \(photoLibrary.favoritesCount)")
@@ -198,7 +199,7 @@ struct CortexTab: View {
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundColor(.white)
 
-            Text("v1.9.2")
+            Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                 .font(.system(size: 14, weight: .light))
                 .foregroundColor(.secondary)
 
@@ -579,7 +580,7 @@ struct SettingsTab: View {
 
                         // App info
                         VStack(spacing: 8) {
-                            Text("Fotify v1.9.2 (build 8)")
+                            Text("Fotify v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
                                 .font(.caption).foregroundStyle(.secondary)
                             Text("IA: Llama 4 Scout via Groq")
                                 .font(.caption2).foregroundStyle(.secondary)
